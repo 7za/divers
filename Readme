@@ -1,1 +1,2 @@
-got_modifier : contains lib and exe which let modify got values
+got_modifier   : contain lib and bin which let modify got values
+nfqueue_sample :  contain simple bin which transform irc output
