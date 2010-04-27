@@ -11,6 +11,12 @@
 # define unlikely(x)     __builtin_expect((x),0)
 #endif
 
+struct dso_plugin
+{
+	void *dso_vmem;
+	void *dso_vsym;
+};
+
 
 void
 dso_plugin_exit(struct dso_plugin *const p)
