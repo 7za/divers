@@ -1,6 +1,7 @@
 #include "dso_plugin.h"
 #include <dlfcn.h>
 #include <stddef.h>
+#include <stdio.h>
 
 #ifndef  likely
 # define likely(x)       __builtin_expect((x),1)
@@ -11,40 +12,40 @@
 #endif
 
 
-#ifdef   DSO_PLUGIN_DBG
-# define dso_plugin_trace() dlerror()
-#else
-# define dso_plugin_trace() do{}while(0) 
-#endif
-
-int
-dso_plugin_init( struct dso_plugin_t *const ptr, 
-                 char *const fname, 
-                 char *const cname)
+void
+dso_plugin_exit(struct dso_plugin *const p)
 {
-  if(unlikely(ptr   == NULL) ||
-     unlikely(fname == NULL) ||
-     unlikely(cname == NULL) ) {
-      return -1;   
-  }
-  
-
-  ptr->dso_vmem = dlopen(fname, RTLD_LAZY);
-  if(unlikely(ptr->dso_vmem == NULL)){
-      return -1;
-  }
-
-  ptr->dso_vsym = dlsym(ptr->dso_vmem, cname);
-  if(ptr->dso_vsym == NULL){
-      return -1;
-  } 
-  return 0;
+	if(likely(p != NULL && p->dso_vmem != NULL)){
+		dlclose(p->dso_vmem);
+	}
 }
 
-void
-dso_plugin_exit(struct dso_plugin_t *ptr)
+
+
+int
+dso_plugin_init(struct dso_plugin *const p,
+                char *const file,
+                char *const ent)
 {
-  if(likely(ptr != NULL) && likely(ptr->dso_vmem != NULL)){
-    dlclose(ptr->dso_vmem);
-  }
+	if(unlikely((p == NULL) || (file == NULL) || (ent == NULL))){
+		return (-1);
+	}
+
+	p->dso_vmem = dlopen(file, RTLD_LAZY);
+	if(p->dso_vmem == NULL){
+		goto dso_plugin_init_dlopen_err;
+	}
+
+	p->dso_vsym = dlsym(p->dso_vmem, ent);
+	if(p->dso_vsym == NULL){
+		goto dso_plugin_init_dlsym_err;
+	}
+
+	return 0;
+
+dso_plugin_init_dlsym_err:
+	dlclose(p->dso_vmem);
+dso_plugin_init_dlopen_err:
+	fprintf(stderr,"%s\n", dlerror());
+	return (-1);
 }
