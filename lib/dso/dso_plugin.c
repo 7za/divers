@@ -3,23 +3,8 @@
 #include <stddef.h>
 #include <stdio.h>
 
-#ifndef  likely
-# define likely(x)       __builtin_expect((x),1)
-#endif
-
-#ifndef  unlikely
-# define unlikely(x)     __builtin_expect((x),0)
-#endif
-
-struct dso_plugin
-{
-	void *dso_vmem;
-	void *dso_vsym;
-};
-
-
 void
-dso_plugin_exit(struct dso_plugin *const p)
+dso_plugin_exit(struct dso_plugin_desc *const p)
 {
 	if(likely(p != NULL && p->dso_vmem != NULL)){
 		dlclose(p->dso_vmem);
@@ -29,7 +14,7 @@ dso_plugin_exit(struct dso_plugin *const p)
 
 
 int
-dso_plugin_init(struct dso_plugin *const p,
+dso_plugin_init(struct dso_plugin_desc *const p,
                 char *const file,
                 char *const ent)
 {

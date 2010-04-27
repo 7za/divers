@@ -2,20 +2,38 @@
 #define DSO_PLUGIN_H
 
 
+#ifndef  likely
+# define likely(x)       __builtin_expect((x),1)
+#endif
 
-struct dso_plugin;
+#ifndef  unlikely
+# define unlikely(x)     __builtin_expect((x),0)
+#endif
+
+
+struct dso_plugin_desc
+{
+	void *dso_vmem;
+	void *dso_vsym;
+};
 
 
 int
-dso_plugin_init(struct dso_plugin *const, char *const, char *const);
+dso_plugin_init(struct dso_plugin_desc *const, char *const, char *const);
 
 void
-dso_plugin_exit(struct dso_plugin *const);
+dso_plugin_exit(struct dso_plugin_desc *const);
 
 
 
-#define dso_plugin_get_entry(dso, entry)                                            \
-			entry = (typeof(entry)) ((typeof(entry)(*)(void))((dso)->dso_vsym))()  
+#define dso_plugin_get_entry(dso, entry)                                                  \
+            ({                                                                            \
+                typeof(entry) *_ret = NULL;                                               \
+                if(likely((dso)!=NULL && (dso)->dso_vsym != NULL)){                       \
+			        _ret = (typeof(_ret)) ((typeof(_ret)(*)(void))((dso)->dso_vsym))();   \
+                }                                                                         \
+                _ret;                                                                     \
+             })
 
 
 #endif

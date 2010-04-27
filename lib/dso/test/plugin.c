@@ -1,4 +1,5 @@
 #include "plugin.h"
+#include <stdio.h>
 
 
 void func(char *p)
