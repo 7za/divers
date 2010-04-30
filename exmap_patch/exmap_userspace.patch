@@ -1,0 +1,113 @@
+From 067fbd8dee34915dcb131c6e48ec994e72c1067c Mon Sep 17 00:00:00 2001
+From: Frederic Ferrandis <frederic.ferrandis@os4i.com>
+Date: Fri, 30 Apr 2010 15:37:03 +0200
+Subject: [PATCH] apply modif to compile exmap
+
+---
+ jutil/TestRunner.cpp |    3 +++
+ jutil/jutil.cpp      |    2 ++
+ jutil/jutil.hpp      |    1 +
+ src/Elf.cpp          |    3 ++-
+ src/exmtool.cpp      |   13 +++++++------
+ 5 files changed, 15 insertions(+), 7 deletions(-)
+
+diff --git a/jutil/TestRunner.cpp b/jutil/TestRunner.cpp
+index 8924528..01710cb 100644
+--- a/jutil/TestRunner.cpp
++++ b/jutil/TestRunner.cpp
+@@ -1,5 +1,8 @@
+ #include "TestRunner.hpp"
+ #include "Pcre.hpp"
++#include <limits.h>
++#include <stdio.h>
++#include <string.h>
+ 
+ using namespace std;
+ 
+diff --git a/jutil/jutil.cpp b/jutil/jutil.cpp
+index 9ba4bce..6d5483f 100644
+--- a/jutil/jutil.cpp
++++ b/jutil/jutil.cpp
+@@ -1,10 +1,12 @@
+ #include "jutil.hpp"
+ 
+ #include <sys/types.h>
++#include <string.h>
+ #include <sys/stat.h>
+ #include <unistd.h>
+ #include <limits.h>
+ #include <dirent.h>
++#include <stdlib.h>
+ 
+ using namespace std;
+ using namespace jutil;
+diff --git a/jutil/jutil.hpp b/jutil/jutil.hpp
+index d7a6fa4..63c0f28 100644
+--- a/jutil/jutil.hpp
++++ b/jutil/jutil.hpp
+@@ -5,6 +5,7 @@
+ #include <string>
+ #include <list>
+ #include <map>
++#include <stdlib.h>
+ 
+ #include <stdio.h>
+ 
+diff --git a/src/Elf.cpp b/src/Elf.cpp
+index 92644eb..f1e6954 100644
+--- a/src/Elf.cpp
++++ b/src/Elf.cpp
+@@ -2,6 +2,7 @@
+  * (c) John Berthels 2005 <jjberthels@gmail.com>. See COPYING for license.
+  */
+ #include "Elf.hpp"
++#include <string.h>
+ 
+ #include <sstream>
+ #include <unistd.h> // getpagesize()
+@@ -578,7 +579,7 @@ bool Section::is_nobits()
+ std::string Section::find_string(istream &is, int index)
+ {
+     if (!is_string_table() || index < 0) {
+-	return false;
++      return string();
+     }
+ 
+     int offset = _sectstruct->offset() + index;
+diff --git a/src/exmtool.cpp b/src/exmtool.cpp
+index 13a7cd7..eacee9b 100644
+--- a/src/exmtool.cpp
++++ b/src/exmtool.cpp
+@@ -6,6 +6,7 @@
+ #include <sstream>
+ #include <iostream>
+ #include <vector>
++#include <string.h>
+ 
+ using namespace std;
+ using namespace Exmap;
+@@ -22,15 +23,15 @@ struct command
+     Handler handler;
+     char *usage;
+ } cmd_handles[] = {
+-    { "procs",
++    {(char*) "procs",
+       do_procs,
+-    "list the known processes"},
+-    { "files",
++    (char*)"list the known processes"},
++    { (char*)"files",
+       do_files,
+-    "list the known files"},
+-    { "showmaps",
++    (char*)"list the known files"},
++    { (char*)"showmaps",
+       do_showmaps,
+-    "list the maps of a particular process"},
++    (char*)"list the maps of a particular process"},
+     { NULL, NULL, NULL },
+ };
+ 
+-- 
+1.7.1
+

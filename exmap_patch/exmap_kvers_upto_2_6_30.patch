@@ -1,0 +1,88 @@
+From 517e003e5af6849ec0c23379e786bc88db376d07 Mon Sep 17 00:00:00 2001
+From: Frederic Ferrandis <frederic.ferrandis@os4i.com>
+Date: Fri, 30 Apr 2010 15:17:25 +0200
+Subject: [PATCH] adapt exmap kmod to work with kernel up to 2.6.30
+
+---
+ kernel/exmap.c |   28 ++++++++++++++++++++++++++++
+ 1 files changed, 28 insertions(+), 0 deletions(-)
+
+diff --git a/kernel/exmap.c b/kernel/exmap.c
+index 02241df..539f093 100644
+--- a/kernel/exmap.c
++++ b/kernel/exmap.c
+@@ -26,6 +26,8 @@
+  */
+ 
+ #include <linux/module.h>
++#include <linux/sched.h>
++#include <linux/nsproxy.h>
+ #include <linux/kernel.h>
+ #include <linux/proc_fs.h>
+ #include <linux/mm.h>
+@@ -42,6 +44,16 @@
+ #define HAVE_PUD_T
+ #endif
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30)
++# define PROCFS_WITHOUT_OWNER 
++#endif
++
++#define HAVE_TASK_BY_PID
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,26)
++# define PROCFS_REMOVE_PROCROOT
++# undef HAVE_TASK_BY_PID
++#endif
++
+ 
+ 
+ #define PROCFS_NAME "exmap"
+@@ -392,7 +404,13 @@ int setup_from_pid(pid_t pid)
+ 	struct task_struct *tsk;
+ 	int errcode = -EINVAL;
+ 
++#ifdef HAVE_TASK_BY_PID
+ 	tsk = find_task_by_pid(pid);
++#else
++    rcu_read_lock();
++    tsk = (pid) ? pid_task(find_pid_ns(pid, current->nsproxy->pid_ns), PIDTYPE_PID) : current;
++    rcu_read_unlock();
++#endif
+ 	if (tsk == NULL) {
+ 		printk (KERN_ALERT
+ 			"/proc/%s: can't find task for pid %d\n",
+@@ -507,7 +525,11 @@ int init_module ()
+ 							NULL);
+ 
+ 	if (exmap_proc_file == NULL) {
++#ifdef PROCFS_REMOVE_PROCROOT
++		remove_proc_entry (PROCFS_NAME, NULL);
++#else
+ 		remove_proc_entry (PROCFS_NAME, &proc_root);
++#endif
+ 		printk (KERN_ALERT "/proc/%s: could not initialize\n",
+ 			PROCFS_NAME);
+ 		return -ENOMEM;
+@@ -515,7 +537,9 @@ int init_module ()
+ 	
+ 	exmap_proc_file->read_proc = procfile_read;
+ 	exmap_proc_file->write_proc = procfile_write;
++#ifndef PROCFS_WITHOUT_OWNER
+ 	exmap_proc_file->owner = THIS_MODULE;
++#endif
+ 	
+ 	/*     exmap_proc_file->mode         = S_IFREG | S_IRUGO; */
+ 	/* TODO - this is quite probably a security problem */
+@@ -532,5 +556,9 @@ int init_module ()
+ void cleanup_module ()
+ {
+ 	printk (KERN_INFO "/proc/%s: remove\n", PROCFS_NAME);
++#ifdef PROCFS_REMOVE_PROCROOT
++	remove_proc_entry (PROCFS_NAME, NULL);
++#else
+ 	remove_proc_entry (PROCFS_NAME, &proc_root);
++#endif
+ }
+-- 
+1.7.1
+
