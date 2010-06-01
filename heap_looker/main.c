@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include "heap_looker.h"
 
 
 int poet()
@@ -11,9 +13,11 @@ int poet()
 
 int main()
 {
-	heap_looker_init();
+	void *ptr;
+	heap_looker_init(stdout);
 	poet();
-	void *p = malloc(4);
-	free(p);
+
+	f1();
+
 	heap_looker_exit();
 }
