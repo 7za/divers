@@ -3,130 +3,151 @@
 #ifdef HEAP_LOOKER_TRACE_ON
 
 #include <stdio.h>
+
+#ifndef __unused
+# define __unused __attribute__((unused))
+#endif
+
+
+#ifdef HEAP_LOOKER_TRACEON
 #include <execinfo.h>
 #include <stdlib.h>
 
 #define __USE_GNU
 #include <dlfcn.h>
 
-static	FILE *bufffp = NULL; 
+static	FILE *_fp = NULL; 
 
 
 void
-heap_looker_exit(void)
-{
-	if(bufffp){
-		fclose(bufffp);
-		bufffp = NULL;
-	}
-}
+__heap_looker_exit(void)
+{}
 
 
 void
-heap_looker_init(FILE *fp)
+__heap_looker_init(FILE *fp)
 {
-	bufffp = fp;
+	_fp = fp ? fp : stdout;
 }
 
 
-
-#define HEAP_LOOKER_WRITE_ALLOCBACKTRACE(addr, len)								\
-	do{																			\
-		fprintf(bufffp, "action=alloc;addr=%p;size=%zd;callby=[", addr, len);	\
-		fprintf(bufffp, "%p]\n", __builtin_return_address(1));					\
+#define HEAP_LOOKER_WRITE_ALLOCBACKTRACE(addr, len)							        \
+	do{																				\
+        Dl_info dinfo;                                                              \
+        void *__ptr;                                                                \
+        __ptr = __builtin_return_address(0);                                        \
+		fprintf(_fp, "[action=alloc;start=%p; len=%zd; call=", addr, len);          \
+        if(dladdr(__ptr, &dinfo) && dinfo.dli_sname){                               \
+            fprintf(_fp, "%s]\n", dinfo.dli_sname);                                 \
+        } else{                                                                     \
+            fprintf(_fp, "%p]\n", __ptr);                                           \
+        }                                                                           \
 	}while(0)
 
 
-#define HEAP_LOOKER_WRITE_FREEBACKTRACE(addr)					\
-	do{															\
-		fprintf(bufffp, "action=free;addr=%p;stack=[", addr);	\
-		fprintf(bufffp, "%p]\n", __builtin_return_address(1));	\
+#define HEAP_LOOKER_WRITE_FREEBACKTRACE(addr)										\
+	do{																				\
+        Dl_info dinfo;                                                              \
+        void *__ptr = __builtin_return_address(0);                                  \
+		fprintf(_fp, "[action=free;start=%p; call=", addr);                         \
+        if(dladdr(__ptr, &dinfo) && dinfo.dli_sname){                               \
+            fprintf(_fp, "%s]\n", dinfo.dli_sname);                                 \
+        } else{                                                                     \
+            fprintf(_fp, "%p]\n", __ptr);                                           \
+        }                                                                           \
 	}while(0)
 
 
+#define __load_func_if(ptr)                     \
+    do{                                         \
+        if(!ptr){                               \
+            ptr = dlsym(RTLD_NEXT, __func__);   \
+        }                                       \
+    }while(0)                                   \
 
 void*
 malloc(size_t len)
 {
-	static void* (*malloc_ptr)(size_t) = NULL;
-	void* ptr = NULL;
+    static void* (*malloc_ptr)(size_t) = NULL;
+	void *ret = NULL;
+    
+    __load_func_if(malloc_ptr);
 
-	if(malloc_ptr == NULL){
-		malloc_ptr = dlsym(RTLD_NEXT, "malloc");
-	}
-	if(malloc_ptr){
-		ptr = malloc_ptr(len);
-	}
-
-	if(bufffp){
-		HEAP_LOOKER_WRITE_ALLOCBACKTRACE(ptr, len);
-	}
-	return ptr;
+    if(malloc_ptr){
+        ret = malloc_ptr(len);
+	    if(_fp && ret){
+		    HEAP_LOOKER_WRITE_ALLOCBACKTRACE(ret, len);
+	    }
+    }
+	return ret;
 }
+
 
 void*
 calloc(size_t a, size_t b)
 {
+    static void* (*calloc_ptr)(size_t, size_t) = NULL;
+	void *ret = NULL;
+    
+    __load_func_if(calloc_ptr);
 
-	static void* (*calloc_ptr)(size_t, size_t) = NULL;
-	void* ptr = NULL;
-
-	if(calloc_ptr == NULL){
-		calloc_ptr = dlsym(RTLD_NEXT, "calloc");
-	}
-	if(calloc_ptr){
-		ptr = calloc_ptr(a, b);
-	}
-
-	if(bufffp){
-		HEAP_LOOKER_WRITE_ALLOCBACKTRACE(ptr, a*b);
-	}
-	return ptr;
+    if(calloc_ptr){
+        ret = calloc_ptr(a, b);
+	    if(_fp && ret){
+		    HEAP_LOOKER_WRITE_ALLOCBACKTRACE(ret, a * b);
+	    }
+    }
+	return ret;
 }
 
 void*
-realloc(void *base, size_t newsize)
+realloc(void *base, size_t a)
 {
-	static void* (*realloc_ptr)(void*, size_t) = NULL;
-	void* ptr = NULL;
+    static void* (*realloc_ptr)(void*, size_t) = NULL;
+	void *ret = NULL;
+    
+    __load_func_if(realloc_ptr);
 
-	if(realloc_ptr == NULL){
-		realloc_ptr = dlsym(RTLD_NEXT, "realloc");
-	}
-	if(realloc_ptr){
-		ptr = realloc_ptr(base, newsize);
-	}
-
-	if(bufffp){
-		HEAP_LOOKER_WRITE_ALLOCBACKTRACE(ptr, newsize);
-	}
-	return ptr;
+    if(realloc_ptr){
+        ret = realloc_ptr(base, a);
+	    if(_fp && ret){
+		    HEAP_LOOKER_WRITE_ALLOCBACKTRACE(ret, a);
+	    }
+    }
+    return ret;
 }
 
 void
 free(void *base)
 {
-	static void (*free_ptr)(void*) = NULL;
+    static void (*free_ptr)(void*) = NULL;
+    
+    __load_func_if(free_ptr);
 
-	if(free_ptr == NULL){
-		free_ptr = dlsym(RTLD_NEXT, "free");
-	}
-	if(free_ptr){
-		free_ptr(base);
-	}
-	if(bufffp){
-		HEAP_LOOKER_WRITE_FREEBACKTRACE(base);
-	}
+    if(free_ptr){
+        free_ptr(base);
+        if(_fp){
+            HEAP_LOOKER_WRITE_FREEBACKTRACE(base);
+        }
+    }
 }
 
 #else
 
-void
-heap_looker_exit(void) {}
 
-void
-heap_looker_init(FILE *fp) {}
+static inline void __heap_looker_init(FILE *fp __unused) {}
 
+static inline void __heap_looker_exit(void) {}
+
+
+#endif
+
+
+extern typeof(__heap_looker_exit)
+heap_looker_exit __attribute__((alias("__heap_looker_exit")));
+
+extern typeof(__heap_looker_init)
+heap_looker_init __attribute__((alias("__heap_looker_init")));
 
 
 #endif

@@ -13,11 +13,10 @@ int poet()
 
 int main()
 {
-	void *ptr;
 	heap_looker_init(stdout);
 	poet();
-
-	f1();
-
+	void *p = malloc(4);
+    strdup("coucou");
+	free(p);
 	heap_looker_exit();
 }
