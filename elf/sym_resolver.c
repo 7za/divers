@@ -13,30 +13,12 @@
 #include <sys/types.h>
 #include <sys/mman.h>
 
-struct sym_resolv_desc
-{
-    int      sr_fd;
-    void    *sr_mem;
-    size_t   sr_memlen;
-    pid_t    sr_pid;
-
-    Elf32_Ehdr  *sr_ehdr;
-    Elf32_Shdr  *sr_shdr;
-    Elf32_Shdr  *sr_shdrstrsectab;
-    Elf32_Shdr  *sr_shdrsymtab;
-    Elf32_Shdr  *sr_shdrstrsymtab;
-
-    char        *sr_sectionstr;
-};
+#include "sym_resolver.h"
+#include "sym_resolver.h"
 
 
-struct sym_resolv
-{
-    void    *sr_symaddr;
-    char     sr_symname[512];
-};
 
-char*
+static char*
 __sym_resolv_sectionhdr_to_section( struct sym_resolv_desc *const desc,
                                     Elf32_Shdr *shdr)
 {
@@ -44,7 +26,7 @@ __sym_resolv_sectionhdr_to_section( struct sym_resolv_desc *const desc,
 }
 
 
-Elf32_Shdr*
+static Elf32_Shdr*
 __sym_resolv_get_sectionhdr_by_name(    struct sym_resolv_desc *const desc,
                                         char *const secname)
 {
@@ -66,42 +48,42 @@ static int
 __sym_resolv_open(pid_t pid, struct sym_resolv_desc *desc)
 {
     struct stat stat;
-    char buff[PATH_MAX];
+    char buff[PATH_MAX], buff2[PATH_MAX];
     int ret;
     size_t len;
 
     snprintf(buff, sizeof(buff), "/proc/%hd/exe", pid);
+    readlink(buff, buff2, sizeof(buff2));
+
 
     desc->sr_fd = open(buff, O_RDONLY, 0644);
     if(desc->sr_fd <= 0){
         return -1;
     }
-    len = (size_t)stat.st_size;
 
     ret = fstat(desc->sr_fd, &stat);
     if(ret < 0){
         goto sr_open_staterr;
     }
 
+    len = (size_t)stat.st_size;
+
+
     desc->sr_mem = mmap(NULL, len, PROT_READ, MAP_PRIVATE, desc->sr_fd, 0);
     if(desc->sr_mem == MAP_FAILED){
         goto sr_open_maperr;
     }
-    printf("mapping start at %p (%zd) \n", desc->sr_mem, len);
 
     desc->sr_memlen = len;
     desc->sr_pid    = pid;
     desc->sr_ehdr   = (Elf32_Ehdr*)desc->sr_mem;
-    desc->sr_shdr   = (Elf32_Shdr*)((char*)(desc->sr_mem)) + desc->sr_ehdr->e_shoff;
-    printf("shdr start at %d -> %p\n", desc->sr_ehdr->e_shoff, desc->sr_shdr); 
+    desc->sr_shdr   = (Elf32_Shdr*)(((char*)(desc->sr_mem)) + desc->sr_ehdr->e_shoff);
     
     if(desc->sr_ehdr->e_shstrndx == SHN_UNDEF){
         goto sr_no_stndxerr;
     }
 
-    printf("e_shstrndx = %d\n", desc->sr_ehdr->e_shstrndx);
     desc->sr_shdrstrsectab  = &desc->sr_shdr[desc->sr_ehdr->e_shstrndx];
-    printf("shdrsectab start at %p\n", desc->sr_shdrstrsectab); 
     desc->sr_sectionstr     = __sym_resolv_sectionhdr_to_section(desc,
                                                     desc->sr_shdrstrsectab);
     desc->sr_shdrsymtab     = __sym_resolv_get_sectionhdr_by_name(  desc, 
@@ -111,7 +93,7 @@ __sym_resolv_open(pid_t pid, struct sym_resolv_desc *desc)
     }
 
     desc->sr_shdrstrsymtab  = __sym_resolv_get_sectionhdr_by_name(  desc,
-                                                                    "strtab");
+                                                                    ".strtab");
     if(!desc->sr_shdrstrsymtab){
         goto sr_no_symname;
     }
@@ -125,6 +107,7 @@ sr_no_stndxerr:
 sr_open_maperr:
 sr_open_staterr:
     close(desc->sr_fd);
+
     return -1;
 }
 
@@ -152,7 +135,7 @@ __sym_resolv_get_funcname_by_addr(  struct sym_resolv_desc *desc,
 {
     Elf32_Sym *walker;
     char      *symnamelist;
-    uint16_t   i, nb_sym;
+    uint32_t   i, nb_sym;
     bool find = false;
     if(!desc || !desc->sr_shdrsymtab){
         return 0;
@@ -164,12 +147,13 @@ __sym_resolv_get_funcname_by_addr(  struct sym_resolv_desc *desc,
     symnamelist = __sym_resolv_sectionhdr_to_section(   desc,
                                                         desc->sr_shdrstrsymtab);
 
-    nb_sym = desc->sr_shdrsymtab->sh_size/sizeof(Elf32_Sym*);
+    nb_sym = desc->sr_shdrsymtab->sh_size/sizeof(*walker);
+
     for(i = 0; !find && i < nb_sym; ++walker, ++i){
         void *start = (void*)walker->st_value;
         void *end   =(void*)( (unsigned long)walker->st_value + 
                               (unsigned long)walker->st_size );
-        if(start <= addr && end >= addr){
+        if(start <= addr && end > addr){
             strncpy(res->sr_symname, 
                     symnamelist + walker->st_name, 
                     sizeof(res[i].sr_symname));
@@ -188,48 +172,22 @@ sym_resolv_get_funcname_by_addr(struct sym_resolv_desc *desc,
                                 struct sym_resolv res[], 
                                 size_t tablen)
 {
-    Dl_info info;
-    int i    = 0;
-    int ret  = 0;
+    Dl_info info = { 0, 0, 0, 0};
+    size_t i    = 0;
+    int dladdrret;
+    void *dlsinameret;
     for( i = 0; i < tablen; ++i){
-        if(dladdr(addr[i], &info) == 0){
-            if(false == __sym_resolv_get_funcname_by_addr(desc, addr[i], &res[i])){
-               res[i].sr_symname[0] = '\0';
-            }
-        } else if(info.dli_sname){
-            strncpy(res[i].sr_symname, info.dli_sname, sizeof(res[i].sr_symname));
-        } else {
-            res[i].sr_symname[0] = '\0';
-        }
+	if(__sym_resolv_get_funcname_by_addr(desc, addr[i], &res[i]) == false){
+		if(dladdr(addr[i], &info) <= 0 || !info.dli_sname){
+		    res[i].sr_symname[0] = '\0';
+		} else{
+		    strncpy(res[i].sr_symname, info.dli_sname, sizeof(res[i].sr_symname));
+		    res[i].sr_symaddr = info.dli_saddr;
+		}
+	}
     }
+	
     return 0;
 }
 
 
-void f1()
-{
-    printf("hello\n");
-}
-
-
-
-int main()
-{
-    struct sym_resolv_desc desc;
-    void *un[]    = {&f1};
-    void *deux[]  = {&malloc};
-    void *trois[] = {&sym_resolv_get_funcname_by_addr};
-    struct sym_resolv res[1];
-    if(sym_resolv_open(&desc)< 0){
-        return 0;
-    }
-
-    sym_resolv_get_funcname_by_addr(&desc, un, res, 1);
-    printf("search %p = %s\n", un[0], res[0].sr_symname);
-
-    sym_resolv_get_funcname_by_addr(&desc, deux, res, 1);
-    printf("search %p = %s\n", deux[0], res[0].sr_symname);
-
-    sym_resolv_close(&desc);
-
-}
