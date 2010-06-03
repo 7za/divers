@@ -9,7 +9,10 @@
 #include <ucontext.h>
 #include <dlfcn.h>
 
-#include "trace/dbgprint.h"
+//#include "trace/dbgprint.h"
+#include "elf/sym_resolver.h"
+
+#define dbg_printf fprintf
 
 static char*
 sig_looker_sigsegvcode_itoa(int code)
@@ -26,10 +29,10 @@ sig_looker_sigsegvcode_itoa(int code)
 static void
 sig_looker_on_segv (int signum, siginfo_t * info, void *__ptr)
 {
-    Dl_info dinfo;
     ucontext_t *ucontext = (ucontext_t *) __ptr;
     greg_t      gip = 0;
     void *ptr = NULL;
+	struct sym_resolv_desc desc;
 
     if(ucontext){
         gip = ucontext->uc_mcontext.gregs[14];
@@ -45,18 +48,14 @@ sig_looker_on_segv (int signum, siginfo_t * info, void *__ptr)
     } else {
         ptr = __builtin_return_address(0);
     }
+	if(!sym_resolv_open(&desc)){
+		void *addr[] = {ptr};
+		struct sym_resolv res[1];
+		sym_resolv_get_funcname_by_addr(&desc, addr, res, 1);
+		dbg_printf(stderr, " in=[%s,%p]\n", res[0].sr_symname, res[0].sr_symaddr);
+		sym_resolv_close(&desc);
+	}
 
-    if(dladdr(ptr, &dinfo) != 0){
-        dbg_printf(stderr,"[");
-        if(dinfo.dli_sname){
-            dbg_printf(stderr,"%s, ", dinfo.dli_sname);
-        } else{
-            dbg_printf(stderr,"%p, ", ptr);
-        }
-        dbg_printf(stderr,"%s]\n", dinfo.dli_fname);
-    } else{ 
-        dbg_printf(stderr,"\n");
-    }
     exit(1);
 }
 
