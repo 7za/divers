@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include <stdio.h>
 
+
+
 void
 dso_plugin_exit(struct dso_plugin_desc *const p)
 {
@@ -10,7 +12,6 @@ dso_plugin_exit(struct dso_plugin_desc *const p)
 		dlclose(p->dso_vmem);
 	}
 }
-
 
 
 int
