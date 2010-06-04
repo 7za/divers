@@ -1,2 +1,10 @@
-got_modifier   : contain lib and bin which let modify got values
-nfqueue_sample :  contain simple bin which transform irc output
+got_modifier    :   contain lib and bin which let modify got values
+nfqueue_sample  :   contain simple bin which transform irc output
+dbg_print       :   conditional trace: used by sig_looker, heap_looker ...
+dso             :   dynamic loading shared object
+exmap_patch     :   contains patch for kernel space and user space for exmap
+heap_looker     :   simple display of allocation and free
+modrefcnt       :   simple kernel module that display refcnt 
+netplug         :   simple lsm module that cut off network when a model of usbkey is plugged
+sig_looker      :   simple library that let display info when a sigsegv occurs
+sym_resolv      :   simple library which try to find symbol name, according to address

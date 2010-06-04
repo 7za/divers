@@ -2,10 +2,12 @@
 #define HEAP_LOOKER_H
 
 
-void heap_looker_init(FILE*);
-void heap_looker_exit(void);
+#include <stdio.h>
 
 
+extern void heap_looker_exit();
+
+extern void heap_looker_init(FILE*);
 
 
 #endif

@@ -1,3 +1,4 @@
+#include "heap_looker.h"
 #include <stdio.h>
 
 #ifndef __unused
@@ -12,6 +13,10 @@
 #define __USE_GNU
 #include <dlfcn.h>
 
+
+#include "dbg_print/dbgprint.h"
+
+
 static	FILE *_fp = NULL; 
 
 
@@ -24,6 +29,7 @@ void
 __heap_looker_init(FILE *fp)
 {
 	_fp = fp ? fp : stdout;
+
 }
 
 
@@ -32,11 +38,11 @@ __heap_looker_init(FILE *fp)
         Dl_info dinfo;                                                              \
         void *__ptr;                                                                \
         __ptr = __builtin_return_address(0);                                        \
-		fprintf(_fp, "[action=alloc;start=%p; len=%zd; call=", addr, len);          \
+		dbg_printf(_fp, "[action=alloc;start=%p; len=%zd; call=", addr, len);       \
         if(dladdr(__ptr, &dinfo) && dinfo.dli_sname){                               \
-            fprintf(_fp, "%s]\n", dinfo.dli_sname);                                 \
+            dbg_printf(_fp, "%s]\n", dinfo.dli_sname);                              \
         } else{                                                                     \
-            fprintf(_fp, "%p]\n", __ptr);                                           \
+            dbg_printf(_fp, "%p]\n", __ptr);                                        \
         }                                                                           \
 	}while(0)
 
@@ -45,11 +51,11 @@ __heap_looker_init(FILE *fp)
 	do{																				\
         Dl_info dinfo;                                                              \
         void *__ptr = __builtin_return_address(0);                                  \
-		fprintf(_fp, "[action=free;start=%p; call=", addr);                         \
+		dbg_printf(_fp, "[action=free;start=%p; call=", addr);                      \
         if(dladdr(__ptr, &dinfo) && dinfo.dli_sname){                               \
-            fprintf(_fp, "%s]\n", dinfo.dli_sname);                                 \
+            dbg_printf(_fp, "%s]\n", dinfo.dli_sname);                              \
         } else{                                                                     \
-            fprintf(_fp, "%p]\n", __ptr);                                           \
+            dbg_printf(_fp, "%p]\n", __ptr);                                        \
         }                                                                           \
 	}while(0)
 
@@ -144,5 +150,4 @@ heap_looker_exit __attribute__((alias("__heap_looker_exit")));
 
 extern typeof(__heap_looker_init)
 heap_looker_init __attribute__((alias("__heap_looker_init")));
-
 
