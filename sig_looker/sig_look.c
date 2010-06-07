@@ -13,11 +13,11 @@
 #include "gnucext/gnuc_extension.h"
 
 
-static char*
+static const char*
 sig_looker_sigsegvcode_itoa(int code)
 {
-    static char *const tab[] =  {   [SEGV_MAPERR] = "addr_not_mapped", 
-                                    [SEGV_ACCERR] = "addr_not_allowed" 
+    static char const *const tab[] =  { [SEGV_MAPERR] = "addr_not_mapped", 
+                                        [SEGV_ACCERR] = "addr_not_allowed" 
                                 };
     if(code == SEGV_MAPERR || code == SEGV_ACCERR){
         return tab[code];
@@ -25,7 +25,7 @@ sig_looker_sigsegvcode_itoa(int code)
     return "code_unknown";
 }
 
-__noreturn static void
+static void
 sig_looker_on_segv (int signum, siginfo_t * info, void *__ptr)
 {
     ucontext_t *ucontext = (ucontext_t *) __ptr;
@@ -54,8 +54,6 @@ sig_looker_on_segv (int signum, siginfo_t * info, void *__ptr)
 		dbg_printf(stderr, " in=[%s,%p]\n", res[0].sr_symname, res[0].sr_symaddr);
 		sym_resolv_close(&desc);
 	}
-
-    exit(1);
 }
 
 
@@ -67,7 +65,7 @@ sig_looker_init(void)
     memset (&action, 0, sizeof (action));
     
     action.sa_sigaction = sig_looker_on_segv;
-    action.sa_flags = SA_SIGINFO;
+    action.sa_flags     = (int)(SA_SIGINFO | SA_RESETHAND);
     
     if (sigaction (SIGSEGV, &action, NULL) < 0){
         dbg_printf(stderr, "unable to register segv callback\n");
@@ -85,6 +83,8 @@ void test()
 
 int main()
 {
+    printf("coucou\n");
+    dbg_printf(stdout, "plop\n");
     test();
     return 0;
 }
