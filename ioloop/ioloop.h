@@ -12,9 +12,6 @@ struct ioloop_event_desc
     int      iol_flags;
     
     ioloop_func_t   iol_func;
-
-    char     iol_internal[12];
-
 };
 
 #define IOLOOP_INITIALIZER          \
@@ -23,7 +20,6 @@ struct ioloop_event_desc
         .iol_data       =   NULL,   \
         .iol_flags      =   0,      \
         .iol_func       =   NULL,   \
-        .iol_internal   =   {[0]=0},\
     }
 
 
