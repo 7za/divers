@@ -1,78 +1,192 @@
 #include "ioloop.h"
-#define _GNU_SOURCE
+#include <assert.h>
+#define __USE_GNU
 #include <search.h>
 #include <stddef.h>
+#include <stdlib.h>
+#include <memory.h>
+#include <unistd.h>
 
 static struct
 {
-    struct hsearch_data htab;
+    void			*root;
     int             epfd; 
-    int             epfd_count
-}   _iol_manager = { .epfd = -1, .epfd_count = 0};
-
-
+	int				quit;
+}   _iol_manager = { .root = NULL, .epfd = -1, .quit = 0};
 
 
 static int
-iol_initlib(int max_events)
+_iol_cmp(const void* a1, const void* a2)
 {
-    int ret;
-    _iol_manager.epfd_count = max_events;
-    _iol_manager.epfd  = epoll_create(IOLOOP_MAX_EV);
-    if(_iol_manager.epfd <= 0){
-        return -1;
-    }   
-    ret = hcreate_r(max_events, &_iol_manager.htab);
-    return -(!ret);
+	struct ioloop_event_desc *d1 = ((const struct epoll_event*)a1)->data.ptr;
+	struct ioloop_event_desc *d2 = ((const struct epoll_event*)a2)->data.ptr;
+
+	return d1->iol_fd - d2->iol_fd;
+}
+
+
+#define IOLOOP_MAXEV 1024
+
+__attribute__((constructor))
+static void
+iol_initlib(void)
+{
+    _iol_manager.epfd  = epoll_create(IOLOOP_MAXEV);
+}
+
+
+static void
+_iol_free_node(void *ptr)
+{
+    struct epoll_event **ref_ev, *ev;
+
+    if(ptr != NULL){
+        struct ioloop_event_desc *dsc;
+	    ref_ev = (struct epoll_event**)ptr;
+        if(!ref_ev){
+            return;
+        }
+        ev = *ref_ev;
+        if(!ev){
+            return;
+        }
+	    dsc = (struct ioloop_event_desc*)ev->data.ptr;
+
+	    epoll_ctl(_iol_manager.epfd, EPOLL_CTL_DEL, dsc->iol_fd, 0);
+        close(dsc->iol_fd);
+	    free(ev->data.ptr);
+	    free(ev);
+	    ev = NULL;
+    }
+}
+
+__attribute__((destructor))
+static void
+iol_exitlib(void)
+{
+	tdestroy(_iol_manager.root, _iol_free_node);
+}
+
+
+
+void
+iol_stop_loop()
+{
+	_iol_manager.quit = 1;
+}
+
+
+
+void
+iol_main_loop()
+{
+	struct epoll_event vec[IOLOOP_MAXEV];
+	int count , i;
+
+	_iol_manager.quit = 0;
+
+	while(!_iol_manager.quit){
+		count = epoll_wait(_iol_manager.epfd, vec, IOLOOP_MAXEV, 0);
+        if(count <= 0){
+            _iol_manager.quit = 1;
+            break;
+        }
+		for( i = 0; i < count; ++i ){
+			struct ioloop_event_desc *curr = (struct ioloop_event_desc*)vec[i].data.ptr;
+			if(curr && curr->iol_func){
+				curr->iol_rev = vec[i].events;
+				if(curr->iol_func(curr->iol_fd, curr) <= 0){
+					iol_del_event(curr->iol_fd);
+				}
+            }
+		}
+	}
+}
+
+static int
+_iol_del_internal_event(int fd, struct epoll_event *ev)
+{
+	if(ev){
+        struct ioloop_event_desc *d = ev->data.ptr;
+		tdelete(ev, &_iol_manager.root, _iol_cmp);
+
+		epoll_ctl(_iol_manager.epfd, EPOLL_CTL_DEL, fd, ev); 
+
+        if(d && d->iol_clean){
+            d->iol_clean(d);
+		    free(ev->data.ptr);
+            ev->data.ptr = NULL;
+        }
+    
+		free(ev);
+        ev = NULL;
+		return 0;
+	}
+	return -1;
 }
 
 
 int
-iol_add_event(struct ioloop_event_desc *ref)
+iol_del_event(int fd)
+{
+	struct ioloop_event_desc tmpdesc = {.iol_fd = fd};
+	struct epoll_event       tmpev; 
+	struct epoll_event **ev = NULL;
+
+	tmpev.data.ptr = &tmpdesc;
+
+	ev = tfind(&tmpev, &_iol_manager.root, _iol_cmp);
+    if(ev){
+	    return _iol_del_internal_event(fd, *ev);
+    }
+    return -1;
+}
+
+
+
+int
+iol_add_event( struct ioloop_event_desc *const ref)
 {
     int ret;
     struct epoll_event *ev;
-    struct entry *entryret = NULL;
-    struct entry  entry;
+
     if(ref == NULL || ref->iol_fd <= 0){
         return -1;
     }
-    snprintf(ref->iol_internal, sizeof(ref->iol_internal),"%d", ref->iol_fd);
 
-    ev = malloc(sizeof(*ev));
+    ev = calloc(1, sizeof(*ev));
 
     if(ev == NULL){
-        goto alloc_err;
+        goto  iol_add_alloc_err;
     }
-    ev->data.data   = malloc(sizeof(*ref));
-    if(ev->data.data == NULL){
-        goto alloc_data_err;
-    }
-    memcpy(ev->data.data, ref, sizeof(*ref));
 
-    ev->events      = ref->iol_flags;
+    ev->data.ptr   = calloc(1, sizeof(*ref));
+    if(ev->data.ptr == NULL){
+        goto iol_add_alloc_data_err;
+    }
+	memcpy(ev->data.ptr, ref, sizeof(*ref));
+
+    ev->events      = ref->iol_ev;
 
     ret = epoll_ctl(_iol_manager.epfd, EPOLL_CTL_ADD, ref->iol_fd, ev);
 
     if(ret){
-        goto epoll_err;
+        goto iol_add_epoll_err;
     }
-    entry->key  = ((struct ioloop_event_desc*)ev->data.data)->iol_internal;
-    entry->data = ev;
-    ret = hsearch_r(entry, ENTER, &entryret, &_iol_manager.htab);
-    if(!ret){
-        goto hsearch_err;
-    }
+
+	if(!tsearch(ev, &_iol_manager.root, _iol_cmp)){
+		goto iol_add_tsearch_err;
+	}
 
     return 0;
 
-hsearch_err:
+iol_add_tsearch_err:
     epoll_ctl(_iol_manager.epfd, EPOLL_CTL_DEL, ref->iol_fd, ev);
-epoll_err:
-    free(ev->data.data);
-alloc_data_err:
+iol_add_epoll_err:
+    free(ev->data.ptr);
+iol_add_alloc_data_err:
     free(ev);
-alloc_err:
+iol_add_alloc_err:
     return -1;
 }
 
