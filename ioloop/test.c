@@ -3,7 +3,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
-
+#include <pthread.h>
+#include <time.h>
 
 static void
 fcbk_clean(void *d)
@@ -18,26 +19,9 @@ fcbk_clean(void *d)
             d1->iol_ctx = NULL;
         }
     }
-    printf("cleaning up for %d\n", d1->iol_fd);
-    puts("here");
-    fflush(stdin);
+    printf("clean-up fd %d\n", d1->iol_fd);
 }
 
-
-
-static ssize_t
-f1cbk(int fd __attribute__((unused)), void *data)
-{
-    struct ioloop_event_desc *d1 = data;
-    ssize_t ret     = -1;
-
-    if( d1 && (d1->iol_rev == EPOLLOUT)){
-        if(fputc('\n', (FILE*)d1->iol_ctx) == 1){
-            ret = 1;
-        }
-    } 
-    return ret;
-}
 
 static ssize_t
 f2cbk(int fd __attribute__((unused)), void *data)
@@ -52,25 +36,6 @@ f2cbk(int fd __attribute__((unused)), void *data)
     return ret;
 }
 
-
-void f1()
-{
-    FILE *fp;
-    DECLARE_IOLOOP_EVENT_DESC(f1iol);
-    
-    fp = popen("ct-ng powerpc-405-linux-gnu", "w");
-    f1iol.iol_ctx   = fp;
-    f1iol.iol_fd    = fileno(fp);
-    f1iol.iol_func  = f1cbk;
-    f1iol.iol_ev    = EPOLLOUT | EPOLLRDHUP;
-    f1iol.iol_clean = fcbk_clean;
-    printf("%s -> fd = %d\n", __func__, f1iol.iol_fd);
-
-    if(iol_add_event(&f1iol) < 0){
-        printf("gros echec\n");
-        exit(1);
-    }
-}
 
 void f2()
 {
@@ -91,14 +56,43 @@ void f2()
     }
 }
 
+void f3()
+{
+    puts(__func__);
+    f2();
+}
+
+
+void*
+th_cbk(void *data)
+{
+    struct timespec spec = { 10, 5};
+    printf("dans le thread\n");
+    pthread_yield();
+    nanosleep( &spec, NULL);
+    printf("reload\n");
+
+    f3();
+    pthread_exit(NULL);
+}
+
 
 int main()
 {
+    pthread_t thread;
+    pthread_attr_t attr;
+    int ret;
     printf("pid = %d\n", getpid());
-    f1();
     f2();
+    f2();
+    f2();
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_create(&thread, &attr, th_cbk, NULL);
 
-    iol_main_loop();
+    while(1){
+        ret = iol_main_loop();
+    }
 
     puts("\n\n\n");
     return 0;

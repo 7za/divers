@@ -9,9 +9,9 @@
 
 static struct
 {
-    void			*root;
-    int             epfd; 
-	int				quit;
+    void    *root;
+    int     epfd; 
+	int     quit;
 }   _iol_manager = { .root = NULL, .epfd = -1, .quit = 0};
 
 
@@ -38,18 +38,11 @@ iol_initlib(void)
 static void
 _iol_free_node(void *ptr)
 {
-    struct epoll_event **ref_ev, *ev;
+    struct epoll_event *ev;
 
     if(ptr != NULL){
         struct ioloop_event_desc *dsc;
-	    ref_ev = (struct epoll_event**)ptr;
-        if(!ref_ev){
-            return;
-        }
-        ev = *ref_ev;
-        if(!ev){
-            return;
-        }
+        ev = ptr;
 	    dsc = (struct ioloop_event_desc*)ev->data.ptr;
 
 	    epoll_ctl(_iol_manager.epfd, EPOLL_CTL_DEL, dsc->iol_fd, 0);
@@ -77,30 +70,26 @@ iol_stop_loop()
 
 
 
-void
+int
 iol_main_loop()
 {
 	struct epoll_event vec[IOLOOP_MAXEV];
 	int count , i;
 
-	_iol_manager.quit = 0;
-
-	while(!_iol_manager.quit){
-		count = epoll_wait(_iol_manager.epfd, vec, IOLOOP_MAXEV, 0);
-        if(count <= 0){
-            _iol_manager.quit = 1;
-            break;
+	count = epoll_wait(_iol_manager.epfd, vec, IOLOOP_MAXEV, 0);
+    if(count <= 0){
+        return -1;
+    }
+	for( i = 0; i < count; ++i ){
+		struct ioloop_event_desc *curr = (struct ioloop_event_desc*)vec[i].data.ptr;
+		if(curr && curr->iol_func){
+			curr->iol_rev = vec[i].events;
+			if(curr->iol_func(curr->iol_fd, curr) <= 0){
+				iol_del_event(curr->iol_fd);
+			}
         }
-		for( i = 0; i < count; ++i ){
-			struct ioloop_event_desc *curr = (struct ioloop_event_desc*)vec[i].data.ptr;
-			if(curr && curr->iol_func){
-				curr->iol_rev = vec[i].events;
-				if(curr->iol_func(curr->iol_fd, curr) <= 0){
-					iol_del_event(curr->iol_fd);
-				}
-            }
-		}
 	}
+    return i;
 }
 
 static int

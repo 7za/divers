@@ -24,7 +24,7 @@ int iol_del_event(int);
 
 int iol_add_event(struct ioloop_event_desc *const);
 
-void iol_main_loop(void);
+int iol_main_loop(void);
 
 
 #define IOLOOP_INITIALIZER          \
