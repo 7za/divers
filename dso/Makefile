@@ -1,6 +1,6 @@
 lib:
-	gcc -fPIC -W -Wall -Wextra -c dso_plugin.c
-	ld dso_plugin.o -o libdsoplugin.so -soname libdsoplugin.so -shared
+	$(CC) -fPIC -W -Wall -Wextra -c dso_plugin.c
+	$(CC) dso_plugin.o -o libdsoplugin.so  -shared
 
 all: lib
 
