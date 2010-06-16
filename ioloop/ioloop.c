@@ -76,7 +76,8 @@ iol_main_loop()
 	struct epoll_event vec[IOLOOP_MAXEV];
 	int count , i;
 
-	count = epoll_wait(_iol_manager.epfd, vec, IOLOOP_MAXEV, 0);
+    /* wait for io events*/
+	count = epoll_wait(_iol_manager.epfd, vec, IOLOOP_MAXEV, -1);
     if(count <= 0){
         return -1;
     }
