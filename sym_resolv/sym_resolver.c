@@ -178,11 +178,40 @@ __sym_resolv_get_funcname_by_addr(  struct sym_resolv_desc *desc,
 }
 
 
+
+Elf32_Sym*
+sym_resolv_symbol(struct sym_resolv_desc *desc, char name[])
+{
+	Elf32_Sym *walker = NULL;
+	char *symnamelist;
+	size_t nb_sym, i;
+
+    walker =  (Elf32_Sym*)__sym_resolv_sectionhdr_to_section(desc, 
+														desc->sr_shdrsymtab);
+
+    symnamelist = __sym_resolv_sectionhdr_to_section(   desc,
+                                                        desc->sr_shdrstrsymtab);
+
+    if(!walker || !symnamelist){
+        return false;
+    }
+
+    nb_sym = desc->sr_shdrsymtab->sh_size/sizeof(*walker);
+	
+    for(i = 0;  i < nb_sym; ++walker, ++i){
+		if(strcmp(name, symnamelist + walker->st_name) == 0){
+			return walker;
+		}
+	}
+	return NULL;
+}
+
+
 int
-sym_resolv_get_funcname_by_addr(struct sym_resolv_desc *desc,    
-                                void *addr[],
-                                struct sym_resolv res[], 
-                                size_t tablen)
+sym_resolv_addr(struct sym_resolv_desc *desc,    
+                void *addr[],
+                struct sym_resolv res[], 
+                size_t tablen)
 {
     Dl_info info = { 0, 0, 0, 0};
     size_t i    = 0;

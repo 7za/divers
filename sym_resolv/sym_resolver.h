@@ -38,10 +38,12 @@ sym_resolv_open(struct sym_resolv_desc *desc);
 
 
 int
-sym_resolv_get_funcname_by_addr(struct sym_resolv_desc *desc,    
-                                void *addr[],
-                                struct sym_resolv res[], 
-                                size_t tablen);
+sym_resolv_addr(struct sym_resolv_desc *desc,    
+                void *addr[],
+                struct sym_resolv res[], 
+                size_t tablen);
 
+Elf32_Sym*
+sym_resolv_symbol(struct sym_resolv_desc *desc, char name[]);
 
 #endif

@@ -24,7 +24,7 @@ int main(void)
     Dl_info info;
     struct timeval ts1, ts2, resu;
 
-    void *un[]    = {f1, f1 + 5,malloc, sym_resolv_get_funcname_by_addr, toto};
+    void *un[]    = {f1, f1 + 5,malloc, sym_resolv_addr, toto};
 
     struct sym_resolv res[5];
 
@@ -38,15 +38,15 @@ int main(void)
     un[4] = toto;
 
     gettimeofday(&ts1, 0);
-    sym_resolv_get_funcname_by_addr(&desc, un, res, 5);
+    sym_resolv_addr(&desc, un, res, 5);
     for(i = 0; i < 5; i++)
         printf("search=%p true = %p name = %s\n", un[i], res[i].sr_symaddr, res[i].sr_symname);
     gettimeofday(&ts2, 0);
 
     timersub(&ts1, &ts2, &resu);
     printf("%ld %ld\n", resu.tv_sec, resu.tv_usec);
+	Elf32_Sym *ptr = sym_resolv_symbol(&desc, "toto");
 
-    sym_resolv_close(&desc);
 
     printf("test with dladdr\n");
 
@@ -62,5 +62,12 @@ int main(void)
     timersub(&ts1, &ts2, &resu);
     printf("%ld %ld\n", resu.tv_sec, resu.tv_usec);
 
+
+	if(ptr){
+		printf("value=%p size=%u info=%u\n", ptr->st_value, ptr->st_size, ptr->st_info);
+	}
+	
+
+    sym_resolv_close(&desc);
     return 0;
 }
