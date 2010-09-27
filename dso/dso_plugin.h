@@ -26,23 +26,23 @@ dso_plugin_exit(struct dso_plugin_desc *const);
 
 
 
-#define dso_plugin_get_entry(dso, entry)							\
-            ({                                                      \
-                typeof(entry) _ret = NULL;                          \
-                if(likely((dso)!=NULL && (dso)->dso_vsym != NULL)){ \
-			        _ret = (typeof(_ret))((dso)->dso_vsym);			\
-                }                                                   \
-                _ret;                                               \
+#define dso_plugin_get_entry(dso, entry)					\
+            ({                                                      		\
+                typeof(entry) _ret = NULL;                          		\
+                if(likely((dso)!=NULL && (dso)->dso_vsym != NULL)){ 		\
+			        _ret = (typeof(_ret))((dso)->dso_vsym);		\
+                }                                                   		\
+                _ret;                                               		\
              })
 
-#define dso_plugin_get_sym(dso, getter, symname)					\
-	({																\
-		typeof(getter) _ret = NULL;									\
-		if(likely(dso)){											\
-			dso->dso_vsym = dlsym(dso->dso_vmem, symname);			\
-			_ret = dso_plugin_get_entry(dso, getter);				\
-		}															\
-		_ret;														\
+#define dso_plugin_get_sym(dso, getter, symname)				\
+	({									\
+		typeof(getter) _ret = NULL;					\
+		if(likely(dso)){						\
+			dso->dso_vsym = dlsym(dso->dso_vmem, symname);		\
+			_ret = dso_plugin_get_entry(dso, getter);		\
+		}								\
+		_ret;								\
 	 })
 
 
