@@ -1,6 +1,3 @@
-#ifndef __HEAP_POOL_H
-#define __HEAP_POOL_H
-
 #include <stdint.h>
 #include <sys/types.h>
 #include <stdlib.h>
@@ -33,7 +30,7 @@ struct heap_pool {
 	size_t   hp_size;
 
 	uint8_t  *hp_mem;
-	uint8_t  *hp_curr;
+	size_t   *hp_curr;
 	size_t	 *hp_index;
 };
 
@@ -62,11 +59,12 @@ static inline size_t __hp_nb_pool(void)
 
 static inline int __hp_pool_has_chunk_left(struct heap_pool const *const p)
 {
-	return (size_t)(p->hp_curr - p->hp_mem) < p->hp_nmemb * p->hp_size;
+	return (size_t)(p->hp_curr - p->hp_index) < p->hp_nmemb ;
 }
 
 struct heap_pool * hp_create_pool(size_t nb, size_t size)
 {
+	size_t i;
 	if(__hp_nb_pool() >= __hp_nmemb) {
 		void *tmp;
 		tmp = realloc(__hp_list, __hp_nmemb + __HEAP_POOL_ALLOC_STEP);
@@ -79,7 +77,11 @@ struct heap_pool * hp_create_pool(size_t nb, size_t size)
 
 	__hp_last->hp_nmemb = nb;
 	__hp_last->hp_size  = size;
-	__hp_last->hp_curr  = (__hp_last->hp_mem = calloc(nb, size));
+	__hp_last->hp_mem   = calloc(nb, size);
+	__hp_last->hp_curr  = calloc(nb, size); 
+	__hp_last->hp_index = __hp_last->hp_curr;
+	for(i = 0; i < nb; ++i)
+		__hp_last->hp_curr[i] = i;
 	return __hp_last++;
 }
 
@@ -111,15 +113,16 @@ static int __hp_grow_pool_mem(struct heap_pool *const hp)
 		return -ENOMEM;
 	hp->hp_mem = tmp;
 
-	tmp = __hp_realloc_mem_desc;
+	tmp = __hp_realloc_mem_desc(hp);
 	if(!tmp)
 		return -ENOMEM;
 	hp->hp_index = tmp;
 	walker = hp->hp_index + hp->hp_nmemb; 
 	max    = hp->hp_nmemb + __HEAP_POOL_ALLOC_CHUNK_STEP;
 	for(i = hp->hp_nmemb; 
-			i < hp->hp_nmemb +  __HEAP_POOL_ALLOC_CHUNK_STEP; 
-			++i, ++walker) {
+		i < hp->hp_nmemb +  __HEAP_POOL_ALLOC_CHUNK_STEP; 
+		++i, ++walker) {
+
 		*walker = i; 
 	}
 	hp->hp_nmemb = max;
@@ -138,23 +141,77 @@ void* hp_alloc_mem(struct heap_pool *const hp)
 			return (void*)ret;
 		}
 	}
-	return hp->hp_curr++;	
+	return &hp->hp_mem[hp->hp_size * *(hp->hp_curr++)];	
 }
 
+static inline int 
+__hp_mem_to_index(struct heap_pool const *const hp, void *const _mem, size_t *r)
+{
+	int ret = -1;
+	uint8_t const *const mem = (uint8_t*)_mem;
+	if(mem >= hp->hp_mem && mem < hp->hp_mem + *hp->hp_curr * hp->hp_size) {
+		*r  = (uint8_t*)mem - hp->hp_mem;
+		ret = 0;
+	}
+	return ret;
+}
+
+static int __hp_search_chunk(struct heap_pool *const hp, void *mem)
+{
+	size_t r, *ptr;
+	int ret;
+	int i, nb_iter;
+	ret = __hp_mem_to_index(hp, mem, &r);
+	if(ret)
+		return ret;
+
+	nb_iter = (int) (hp->hp_curr - hp->hp_index);
+
+	for(ptr = hp->hp_index, i = 0; i < nb_iter; ++ptr, ++i)
+		if(*ptr == r)
+			return i;
+	return -1;
+}
 
 void hp_free_mem(struct heap_pool *const hp, void *_mem)
 {
-	const uint8_t *mem = (uint8_t*)_mem;
-	const uint8_t *max_bound = &hp->hp_mem[hp->hp_size*hp->hp_nmemb];
+	int r;
+	size_t b;
 
-	if(!(mem>=hp->hp_mem && mem <= max_bound)) {
+	r = __hp_search_chunk(hp, _mem);
+	if(r < 0)
 		return;
-	}
 
-
-
-
+	--hp->hp_curr;
+	b = hp->hp_index[r];
+	hp->hp_index[r] = *(hp->hp_curr);
+	hp->hp_curr[0] = b;
 }
 
+#include <stdio.h>
 
-#endif /* __HEAP_POOL_H */
+int main(int argc, char *const argv[])
+{
+	struct heap_pool *pool = hp_create_pool(10, 10);	
+	void *p[15];
+	int i;
+	if(pool == NULL) {
+		return 0;	
+	}
+
+	for(i = 0; i < 15; ++i) {
+		p[i] = hp_alloc_mem(pool);
+		printf("%d %p\n", i, p[i]);
+	}
+	
+	hp_free_mem(pool, p[10]);
+	hp_free_mem(pool, p[10]);
+
+	for(i = 0; i < 8; ++i)
+		hp_free_mem(pool, p[i]);
+
+	for(i = 14; i >=8; --i)
+		hp_free_mem(pool, p[i]);
+	return 0;
+}
+
