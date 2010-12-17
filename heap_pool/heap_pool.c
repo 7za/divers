@@ -89,7 +89,7 @@ static void* __hp_realloc_mem_chunk(struct heap_pool const *const p)
 {
 	void *ret;
 	ret = realloc(p->hp_mem,
-		p->hp_nmemb + p->hp_size * __HEAP_POOL_ALLOC_CHUNK_STEP);
+		(p->hp_nmemb +__HEAP_POOL_ALLOC_CHUNK_STEP) * p->hp_size);
 
 	return ret;
 }
@@ -108,6 +108,7 @@ static int __hp_grow_pool_mem(struct heap_pool *const hp)
 	void *tmp;
 	size_t i, max;
 	size_t *walker;
+	size_t diff = hp->hp_curr - hp->hp_index;
 	tmp = __hp_realloc_mem_chunk(hp);
 	if(!tmp) 
 		return -ENOMEM;
@@ -117,6 +118,7 @@ static int __hp_grow_pool_mem(struct heap_pool *const hp)
 	if(!tmp)
 		return -ENOMEM;
 	hp->hp_index = tmp;
+	hp->hp_curr  = hp->hp_index + diff;
 	walker = hp->hp_index + hp->hp_nmemb; 
 	max    = hp->hp_nmemb + __HEAP_POOL_ALLOC_CHUNK_STEP;
 	for(i = hp->hp_nmemb; 
