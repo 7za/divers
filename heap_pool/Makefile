@@ -5,4 +5,4 @@ heap_pool: clean
 	gcc heap_pool.c -o heap_pool -lrt -Wall -W -Wextra
 
 clean:
-	rm heap_pool
+	rm -f heap_pool

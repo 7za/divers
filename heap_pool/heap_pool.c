@@ -61,6 +61,41 @@ typedef  uint8_t  chunk_extra_t;
 #define HEAP_CHUNK_FREE (0)
 #define HEAP_CHUNK_USED (1)
 
+typedef struct {
+  uint8_t *addr;
+  size_t   index;
+} heap_pool_addr_t;
+
+#define HEAP_POOL_GET_NTH_CHUNK(p, nth)	\
+	((p)->hpd_firstelem + nth *	\
+	 	((p)->hpd_holesize + (p)->hpd_esize + sizeof(chunk_extra_t)))
+
+int heap_pool_alloc(struct heap_pool_desc *p, heap_pool_addr_t *ret)
+{
+	size_t nieme;
+	if(p->hpd_firstfree == p->hpd_enum) {
+		return -ENOMEM;
+	}
+	nieme = ((size_t*)p->hpd_raw)[p->hpd_firstfree];
+	ret->index = p->hpd_firstfree;
+	ret->addr  = HEAP_POOL_GET_NTH_CHUNK(p, nieme);
+	++p->hpd_firstfree;
+	return 0;
+}
+
+void heap_pool_free(struct heap_pool_desc *p, heap_pool_addr_t addr)
+{
+	size_t tmp;
+	size_t *array = (size_t*)p->hpd_raw;
+	if(unlikely(p->hpd_firstfree == 0)) {
+		return;
+	}
+	--p->hpd_firstfree;
+
+	tmp = array[p->hpd_firstfree];
+	array[p->hpd_firstfree] = array[addr.index]; 
+}
+
 void heap_pool_destroy(struct heap_pool_desc *desc, char name[])
 {
 	munmap(desc, desc->hpd_allocsize);
@@ -134,12 +169,21 @@ mapfailed:
 
 int main()
 {
+	heap_pool_addr_t addr;
 	struct heap_pool_desc * p = heap_pool_create("/plop", 30, 20, 64);
-
-
 	getchar();
+	heap_pool_alloc(p, &addr);
+	HEAP_POOL_DEBUG("%p\n", addr);
+
+	heap_pool_free(p, addr);
+
+	heap_pool_alloc(p, &addr);
+	HEAP_POOL_DEBUG("%p\n", addr);
+
+	heap_pool_free(p, addr);
+	heap_pool_free(p, addr);
+	heap_pool_free(p, addr);
 
 	heap_pool_destroy(p, "/plop");
-
 	return 0;
 }
