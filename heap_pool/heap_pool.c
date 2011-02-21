@@ -41,6 +41,28 @@
 # define heap_pool_getpagesize()	sysconf(_SC_PAGESIZE)
 #endif
 
+#define MAX_ERRNO 4095
+#define IS_ERR_VALUE(x) unlikely((x) >= (unsigned long)-MAX_ERRNO)
+
+static inline void* ERR_PTR(long error)
+{
+	return (void *) error;
+}
+
+static inline long PTR_ERR(const void *ptr)
+{
+	return (long) ptr;
+}
+
+static inline long IS_ERR(const void *ptr)
+{
+	return IS_ERR_VALUE((unsigned long)ptr);
+}
+
+static inline long IS_ERR_OR_NULL(const void *ptr)
+{
+	return !ptr || IS_ERR_VALUE((unsigned long)ptr);
+}
 
 struct heap_pool_desc {
 	struct   heap_pool_desc *hpd_next;
@@ -132,11 +154,11 @@ struct heap_pool_desc* heap_pool_open(char name[])
 	struct heap_pool_desc *p = NULL;
 	fd = shm_open(name, O_RDWR, 0666);
 	if(fd < 0) {
-		return  (void*)(long)(-EINVAL);
+		return  ERR_PTR(-EINVAL);
 	}
 	ret = fstat(fd, &st);
 	if(unlikely(ret != 0)) {
-		return (void*)(long)(-errno);
+		return ERR_PTR(-errno);
 	}
 	p = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, 
 		MAP_SHARED, fd, 0);
@@ -159,7 +181,7 @@ struct heap_pool_desc* heap_pool_create(char name[],
 	uint8_t *ptr;
 
 	if(align & 0x1) {
-		return (void*)(long)(-EINVAL);
+		return ERR_PTR(-EINVAL);
 	}
 
 	pagesize  = (size_t)heap_pool_getpagesize();
@@ -173,7 +195,7 @@ struct heap_pool_desc* heap_pool_create(char name[],
 
 	fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0666);
 	if(unlikely(fd < 0)) {
-		return (void*)(long)(-errno);
+		return ERR_PTR(-errno);
 	}
 	ftruncate(fd, allocsize);
 
@@ -214,7 +236,10 @@ int main()
 	heap_pool_addr_t addr;
 	void *ret;
 	struct heap_pool_desc * p = heap_pool_create("/plop", 30, 20, 64);
-	getchar();
+	if(IS_ERR(p)) {
+		puts(strerror(-PTR_ERR(p)));
+		return 0;
+	}
 	ret = heap_pool_alloc(p, &addr);
 	memset(*(void**)&addr, 'p', 20);
 	HEAP_POOL_DEBUG("%p\n", ret);
@@ -232,8 +257,10 @@ int main()
 	heap_pool_close(p);
 
 	p = heap_pool_open("/plop");
-
-	getchar();
+	if(IS_ERR(p)) {
+		puts(strerror(-PTR_ERR(p)));
+		return 0;
+	}
 
 	heap_pool_destroy(p, "/plop");
 
