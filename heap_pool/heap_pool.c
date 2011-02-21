@@ -10,8 +10,14 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#define __HEAP_POOL_ALLOC_STEP	(5)
-#define __HEAP_POOL_ALLOC_CHUNK_STEP	(10)
+#ifndef __HEAP_POOL_ALLOC_STEP
+# define __HEAP_POOL_ALLOC_STEP	(5)
+#endif
+
+#ifndef __HEAP_POOL_ALLOC_CHUNK_STEP
+# define __HEAP_POOL_ALLOC_CHUNK_STEP	(10)
+#endif
+
 
 
 #ifndef unlikely 
@@ -38,6 +44,12 @@
 
 struct heap_pool_desc {
 	struct   heap_pool_desc *hpd_next;
+#ifdef HEAP_POOL_DBHOOK
+	void* (*hpdbg_on_alloc)(void*);
+	void* (*hpdbg_on_free)(void*);
+	void* (*hpdbg_on_dblfree)(void*);
+	void* (*hpdbg_on_allocerr)(void*);
+#endif
 	size_t   hpd_esize;
 	size_t   hpd_enum;
 	size_t   hpd_holesize;
@@ -62,25 +74,31 @@ typedef  uint8_t  chunk_extra_t;
 #define HEAP_CHUNK_USED (1)
 
 typedef struct {
-  uint8_t *addr;
-  size_t   index;
+	void	*addr;
+	size_t	index;
 } heap_pool_addr_t;
+
 
 #define HEAP_POOL_GET_NTH_CHUNK(p, nth)	\
 	((p)->hpd_firstelem + nth *	\
 	 	((p)->hpd_holesize + (p)->hpd_esize + sizeof(chunk_extra_t)))
 
-int heap_pool_alloc(struct heap_pool_desc *p, heap_pool_addr_t *ret)
+static inline size_t heap_pool_nb_free(struct heap_pool_desc *p)
+{
+	return p->hpd_enum - p->hpd_firstfree;
+}
+
+void* heap_pool_alloc(struct heap_pool_desc *p, heap_pool_addr_t *ret)
 {
 	size_t nieme;
 	if(p->hpd_firstfree == p->hpd_enum) {
-		return -ENOMEM;
+		return  (void*)(unsigned long)-ENOMEM;
 	}
 	nieme = ((size_t*)p->hpd_raw)[p->hpd_firstfree];
 	ret->index = p->hpd_firstfree;
 	ret->addr  = HEAP_POOL_GET_NTH_CHUNK(p, nieme);
 	++p->hpd_firstfree;
-	return 0;
+	return ret->addr;
 }
 
 void heap_pool_free(struct heap_pool_desc *p, heap_pool_addr_t addr)
@@ -100,6 +118,30 @@ void heap_pool_destroy(struct heap_pool_desc *desc, char name[])
 {
 	munmap(desc, desc->hpd_allocsize);
 	shm_unlink(name);
+}
+
+void heap_pool_close(struct heap_pool_desc *desc)
+{
+	munmap(desc, desc->hpd_allocsize);
+}
+
+struct heap_pool_desc* heap_pool_open(char name[])
+{
+	int fd, ret;
+	struct stat st;
+	struct heap_pool_desc *p = NULL;
+	fd = shm_open(name, O_RDWR, 0666);
+	if(fd < 0) {
+		return  (void*)(long)(-EINVAL);
+	}
+	ret = fstat(fd, &st);
+	if(unlikely(ret != 0)) {
+		return (void*)(long)(-errno);
+	}
+	p = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, 
+		MAP_SHARED, fd, 0);
+	close(fd);
+	return p;
 }
 
 struct heap_pool_desc* heap_pool_create(char name[],
@@ -170,20 +212,30 @@ mapfailed:
 int main()
 {
 	heap_pool_addr_t addr;
+	void *ret;
 	struct heap_pool_desc * p = heap_pool_create("/plop", 30, 20, 64);
 	getchar();
-	heap_pool_alloc(p, &addr);
-	HEAP_POOL_DEBUG("%p\n", addr);
+	ret = heap_pool_alloc(p, &addr);
+	memset(*(void**)&addr, 'p', 20);
+	HEAP_POOL_DEBUG("%p\n", ret);
+	getchar();
 
 	heap_pool_free(p, addr);
 
-	heap_pool_alloc(p, &addr);
-	HEAP_POOL_DEBUG("%p\n", addr);
+	ret = heap_pool_alloc(p, &addr);
+	HEAP_POOL_DEBUG("%p\n", *(void**)&addr);
 
 	heap_pool_free(p, addr);
 	heap_pool_free(p, addr);
 	heap_pool_free(p, addr);
+
+	heap_pool_close(p);
+
+	p = heap_pool_open("/plop");
+
+	getchar();
 
 	heap_pool_destroy(p, "/plop");
+
 	return 0;
 }
