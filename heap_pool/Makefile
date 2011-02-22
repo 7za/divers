@@ -1,8 +1,8 @@
-heap_pool_dbg: clean
-	gcc heap_pool.c -o heap_pool -lrt -Wall -W -Wextra -DDBG -ggdb --coverage
-
 heap_pool: clean
-	gcc heap_pool.c -o heap_pool -lrt -Wall -W -Wextra
+	gcc -fpic  heap_pool.c -o libheap_pool.so -lrt -Wall -W -Wextra -shared -ggdb
+	objcopy --only-keep-debug libheap_pool.so libheap_pool.so.debug
 
+test: heap_pool
+	gcc main.c -L. -lheap_pool -o main -ggdb
 clean:
-	rm -f heap_pool
+	rm -f libheap_pool.so* main

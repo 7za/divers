@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <limits.h>
 #include <stddef.h>
 #include <string.h>
 #include <sys/types.h>
@@ -9,6 +10,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include "heap_pool.h"
 
 #ifndef __HEAP_POOL_ALLOC_STEP
 # define __HEAP_POOL_ALLOC_STEP	(5)
@@ -16,16 +18,6 @@
 
 #ifndef __HEAP_POOL_ALLOC_CHUNK_STEP
 # define __HEAP_POOL_ALLOC_CHUNK_STEP	(10)
-#endif
-
-
-
-#ifndef unlikely 
-# define unlikely(x)	(__builtin_expect((x), 0))
-#endif
-
-#ifndef likely 
-# define likely(x)	(__builtin_expect((x), 1))
 #endif
 
 #ifdef DBG
@@ -41,45 +33,6 @@
 # define heap_pool_getpagesize()	sysconf(_SC_PAGESIZE)
 #endif
 
-#define MAX_ERRNO 4095
-#define IS_ERR_VALUE(x) unlikely((x) >= (unsigned long)-MAX_ERRNO)
-
-static inline void* ERR_PTR(long error)
-{
-	return (void *) error;
-}
-
-static inline long PTR_ERR(const void *ptr)
-{
-	return (long) ptr;
-}
-
-static inline long IS_ERR(const void *ptr)
-{
-	return IS_ERR_VALUE((unsigned long)ptr);
-}
-
-static inline long IS_ERR_OR_NULL(const void *ptr)
-{
-	return !ptr || IS_ERR_VALUE((unsigned long)ptr);
-}
-
-struct heap_pool_desc {
-	struct   heap_pool_desc *hpd_next;
-#ifdef HEAP_POOL_DBHOOK
-	void* (*hpdbg_on_alloc)(void*);
-	void* (*hpdbg_on_free)(void*);
-	void* (*hpdbg_on_dblfree)(void*);
-	void* (*hpdbg_on_allocerr)(void*);
-#endif
-	size_t   hpd_esize;
-	size_t   hpd_enum;
-	size_t   hpd_holesize;
-	size_t   hpd_firstfree;
-	size_t   hpd_allocsize;
-	uint8_t  *hpd_firstelem;
-	uint8_t  hpd_raw[];
-};
 
 #define __ALIGN(x, y) (((x) + (y) - 1) & ~((y) - 1))
 #define __ALIGN_PTR(addr, align) ((void*)__ALIGN((unsigned long)(addr), (align)))
@@ -94,11 +47,6 @@ typedef  uint8_t  chunk_extra_t;
 
 #define HEAP_CHUNK_FREE (0)
 #define HEAP_CHUNK_USED (1)
-
-typedef struct {
-	void	*addr;
-	size_t	index;
-} heap_pool_addr_t;
 
 
 #define HEAP_POOL_GET_NTH_CHUNK(p, nth)	\
@@ -147,23 +95,60 @@ void heap_pool_close(struct heap_pool_desc *desc)
 	munmap(desc, desc->hpd_allocsize);
 }
 
-struct heap_pool_desc* heap_pool_open(char name[])
+static inline int __heap_pool_get_stat(char name[], struct stat *st)
 {
-	int fd, ret;
-	struct stat st;
-	struct heap_pool_desc *p = NULL;
-	fd = shm_open(name, O_RDWR, 0666);
-	if(fd < 0) {
-		return  ERR_PTR(-EINVAL);
+	int ret;
+	char *ptr = name;
+	char _name[PATH_MAX];
+	if(name[0] == '/') {
+		sprintf(_name, "/dev/shm%s", name);
+		ptr = _name;
 	}
-	ret = fstat(fd, &st);
-	if(unlikely(ret != 0)) {
-		return ERR_PTR(-errno);
-	}
-	p = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, 
+
+	ret = stat(ptr, st);
+	return ret;
+}
+
+static inline struct heap_pool_desc* 
+__heap_pool_open(char name [], size_t const size)
+{
+	struct heap_pool_desc *desc;
+	int fd = shm_open(name, O_RDWR, 0666);
+	if(fd < 0)
+		return ERR_PTR(-EINVAL);
+	desc = mmap(NULL, size, PROT_READ | PROT_WRITE,
 		MAP_SHARED, fd, 0);
 	close(fd);
-	return p;
+	return desc;
+}
+
+struct heap_pool_desc* heap_pool_open(char name[])
+{
+	struct stat st;
+	int ret;
+
+	ret = __heap_pool_get_stat(name, &st);
+	/* dont exist */
+	if(ret < 0) {
+		return ERR_PTR(-errno);	
+	}
+	return __heap_pool_open(name, st.st_size);
+}
+
+struct heap_pool_desc* heap_pool_create_if_needed(char name[],
+						size_t const nb,
+						size_t const size,
+						size_t const align)
+{
+	struct stat stat;
+	int ret;
+
+	ret = __heap_pool_get_stat(name, &stat);
+	/* dont exist */
+	if(ret < 0) {
+		return heap_pool_create(name, nb, size, align);
+	}
+	return __heap_pool_open(name, stat.st_size);
 }
 
 struct heap_pool_desc* heap_pool_create(char name[],
@@ -229,40 +214,4 @@ struct heap_pool_desc* heap_pool_create(char name[],
 mapfailed:
 	close(fd);
 	return ret;
-}
-
-int main()
-{
-	heap_pool_addr_t addr;
-	void *ret;
-	struct heap_pool_desc * p = heap_pool_create("/plop", 30, 20, 64);
-	if(IS_ERR(p)) {
-		puts(strerror(-PTR_ERR(p)));
-		return 0;
-	}
-	ret = heap_pool_alloc(p, &addr);
-	memset(*(void**)&addr, 'p', 20);
-	HEAP_POOL_DEBUG("%p\n", ret);
-	getchar();
-
-	heap_pool_free(p, addr);
-
-	ret = heap_pool_alloc(p, &addr);
-	HEAP_POOL_DEBUG("%p\n", *(void**)&addr);
-
-	heap_pool_free(p, addr);
-	heap_pool_free(p, addr);
-	heap_pool_free(p, addr);
-
-	heap_pool_close(p);
-
-	p = heap_pool_open("/plop");
-	if(IS_ERR(p)) {
-		puts(strerror(-PTR_ERR(p)));
-		return 0;
-	}
-
-	heap_pool_destroy(p, "/plop");
-
-	return 0;
 }
