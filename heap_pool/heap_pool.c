@@ -50,7 +50,7 @@ typedef  uint8_t  chunk_extra_t;
 
 
 #define HEAP_POOL_GET_NTH_CHUNK(p, nth)	\
-	((p)->hpd_firstelem + nth *	\
+	(p+(p)->hpd_offfirstelem + nth *	\
 	 	((p)->hpd_holesize + (p)->hpd_esize + sizeof(chunk_extra_t)))
 
 static inline size_t heap_pool_nb_free(struct heap_pool_desc *p)
@@ -118,6 +118,8 @@ __heap_pool_open(char name [], size_t const size)
 		return ERR_PTR(-EINVAL);
 	desc = mmap(NULL, size, PROT_READ | PROT_WRITE,
 		MAP_SHARED, fd, 0);
+	
+
 	close(fd);
 	return desc;
 }
@@ -158,7 +160,7 @@ struct heap_pool_desc* heap_pool_create(char name[],
 {
 	size_t allocsize;
 	size_t chunksize;
-	size_t holesize;
+	size_t holesize = 0;
 	size_t pagesize;
 	struct heap_pool_desc *ret = NULL;
 	int fd;
@@ -171,7 +173,8 @@ struct heap_pool_desc* heap_pool_create(char name[],
 
 	pagesize  = (size_t)heap_pool_getpagesize();
 	chunksize = size + sizeof(chunk_extra_t);
-	holesize  = __ALIGN(chunksize, align) - chunksize;
+	if(align)
+		holesize  = __ALIGN(chunksize, align) - chunksize;
 	allocsize = sizeof(*ret) + align + nb*(sizeof(size_t) + chunksize);
 	allocsize = __ALIGN(allocsize, pagesize);
 
@@ -199,11 +202,16 @@ struct heap_pool_desc* heap_pool_create(char name[],
 	HEAP_POOL_DEBUG("numelem is %zu\n", ret->hpd_enum);
 
 	ret->hpd_holesize  = holesize;
+	ret->hpd_allocsize = allocsize;
 	ret->hpd_firstfree = 0;
 	walker = (size_t*)ret->hpd_raw;
-	ptr    = __ALIGN_PTR(walker + ret->hpd_enum, align);
+
+	ptr = (uint8_t*)(walker + ret->hpd_enum);
+	if(align)
+		ptr    = __ALIGN_PTR(walker + ret->hpd_enum, align);
+
 	HEAP_POOL_DEBUG("ptr go %p to %p\n", walker + ret->hpd_enum, ptr);
-	ret->hpd_firstelem = ptr;
+	ret->hpd_offfirstelem = (off_t)((char*)ptr - (char*)ret);
 	for(i = 0; i < ret->hpd_enum; ++i, ++walker, ptr+=chunksize+holesize) {
 		*walker = i;
 		*(ptr + size) = HEAP_POOL_MAGIC | HEAP_CHUNK_FREE;
@@ -214,4 +222,9 @@ struct heap_pool_desc* heap_pool_create(char name[],
 mapfailed:
 	close(fd);
 	return ret;
+}
+
+void heap_pool_delete_shmfile(char name[])
+{
+	shm_unlink(name);
 }
