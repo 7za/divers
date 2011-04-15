@@ -131,7 +131,7 @@ struct heap_pool_desc* heap_pool_create(char name[],
 	uint8_t *ptr;
 	unsigned int mapflag;
 
-	if((align != 1) && (align & (align - 1)))  
+	if((align != 1) && (align & (align - 1))) { 
 		return ERR_PTR(-EINVAL);
 	}
 
@@ -170,7 +170,7 @@ struct heap_pool_desc* heap_pool_create(char name[],
 	ret->hpd_esize = size;
 	ret->hpd_enum  = 
 		((allocsize - align - offsetof(struct heap_pool_desc, hpd_raw)) /
-		 (sizeof(size_t) + holesize + chunksize );
+		 (sizeof(size_t) + holesize + chunksize ));
 
 	HEAP_POOL_DEBUG("numelem is %zu\n", ret->hpd_enum);
 
