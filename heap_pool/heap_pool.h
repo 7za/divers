@@ -1,6 +1,6 @@
 #ifndef HEAP_POOL_H
 #define HEAP_POOL_H
-
+#include <errno.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <sys/types.h>
@@ -77,6 +77,7 @@ struct heap_pool_desc {
 	size_t   hpd_firstfree;
 	size_t   hpd_allocsize;
 	off_t	 hpd_offfirstelem;
+	off_t	 hpd_truesize;
 	uint8_t  hpd_raw[];
 };
 
@@ -99,20 +100,6 @@ typedef struct {
 	void	*addr;
 	size_t	index;
 } heap_pool_addr_t;
-
-
-/*!
- * @brief : return addr we can use. 
- * We should test value return with IS_ERR() function
- */
-void* heap_pool_alloc(struct heap_pool_desc *p, heap_pool_addr_t *ret);
-
-
-/*!
- * @brief : free an allocated object. We have to provided the heap_pool_addr_t
- * which was filled by heap_pool_alloc.
- */
-void heap_pool_free(struct heap_pool_desc *p, heap_pool_addr_t addr);
 
 /*!
  * @brief : destroy (ie, munmap + unlink) an opened shm
@@ -152,6 +139,55 @@ struct heap_pool_desc* heap_pool_create_if_needed(char name[],
 						size_t const nb,
 						size_t const size,
 						size_t const align);
+#ifdef   HEAP_POOL_OVERFLOW_DBG
+typedef  uint32_t chunk_extra_t;	
+# define HEAP_POOL_MAGIC 0xcacacaca
+#else
+typedef  uint8_t  chunk_extra_t;
+# define HEAP_POOL_MAGIC 0xca 
+#endif
+
+
+
+#define HEAP_POOL_GET_NTH_CHUNK(p, nth)	\
+	((char*)p+(p)->hpd_offfirstelem + nth *	(p)->hpd_truesize)
+
+static inline size_t heap_pool_nb_free(struct heap_pool_desc *p)
+{
+	return p->hpd_enum - p->hpd_firstfree;
+}
+
+__attribute__((always_inline))
+static inline void* heap_pool_alloc(struct heap_pool_desc *p, heap_pool_addr_t *ret)
+{
+	size_t nieme;
+	if(p->hpd_firstfree == p->hpd_enum) {
+		return  (void*)(unsigned long)-ENOMEM;
+	}
+	nieme = ((size_t*)p->hpd_raw)[p->hpd_firstfree];
+	ret->index = p->hpd_firstfree;
+	ret->addr  = HEAP_POOL_GET_NTH_CHUNK(p, nieme);
+	++p->hpd_firstfree;
+	return ret->addr;
+}
+
+
+__attribute__((always_inline))
+static inline void heap_pool_free(struct heap_pool_desc *p, heap_pool_addr_t addr)
+{
+	size_t *array = (size_t*)p->hpd_raw;
+	size_t last_allocatated;
+
+//	if(addr.index >= p->hpd_firstfree)
+//		abort();
+
+	--p->hpd_firstfree;
+
+	last_allocatated = array[p->hpd_firstfree];
+	array[p->hpd_firstfree] = array[addr.index]; 
+	array[addr.index] = last_allocatated;
+}
+
 
 
 #endif

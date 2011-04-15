@@ -36,58 +36,16 @@
 
 #define __ALIGN(x, y) (((x) + (y) - 1) & ~((y) - 1))
 #define __ALIGN_PTR(addr, align) ((void*)__ALIGN((unsigned long)(addr), (align)))
-
-#ifdef   HEAP_POOL_OVERFLOW_DBG
-typedef  uint32_t chunk_extra_t;	
-# define HEAP_POOL_MAGIC 0xcacacaca
-#else
-typedef  uint8_t  chunk_extra_t;
-# define HEAP_POOL_MAGIC 0xca 
-#endif
-
 #define HEAP_CHUNK_FREE (0)
 #define HEAP_CHUNK_USED (1)
 
-
-#define HEAP_POOL_GET_NTH_CHUNK(p, nth)	\
-	(p+(p)->hpd_offfirstelem + nth *	\
-	 	((p)->hpd_holesize + (p)->hpd_esize + sizeof(chunk_extra_t)))
-
-static inline size_t heap_pool_nb_free(struct heap_pool_desc *p)
-{
-	return p->hpd_enum - p->hpd_firstfree;
-}
-
-void* heap_pool_alloc(struct heap_pool_desc *p, heap_pool_addr_t *ret)
-{
-	size_t nieme;
-	if(p->hpd_firstfree == p->hpd_enum) {
-		return  (void*)(unsigned long)-ENOMEM;
-	}
-	nieme = ((size_t*)p->hpd_raw)[p->hpd_firstfree];
-	ret->index = p->hpd_firstfree;
-	ret->addr  = HEAP_POOL_GET_NTH_CHUNK(p, nieme);
-	++p->hpd_firstfree;
-	return ret->addr;
-}
-
-void heap_pool_free(struct heap_pool_desc *p, heap_pool_addr_t addr)
-{
-	size_t tmp;
-	size_t *array = (size_t*)p->hpd_raw;
-	if(unlikely(p->hpd_firstfree == 0)) {
-		return;
-	}
-	--p->hpd_firstfree;
-
-	tmp = array[p->hpd_firstfree];
-	array[p->hpd_firstfree] = array[addr.index]; 
-}
-
 void heap_pool_destroy(struct heap_pool_desc *desc, char name[])
 {
+	(void)name;
 	munmap(desc, desc->hpd_allocsize);
+#ifdef HP_HAVE_SHM
 	shm_unlink(name);
+#endif
 }
 
 void heap_pool_close(struct heap_pool_desc *desc)
@@ -126,15 +84,20 @@ __heap_pool_open(char name [], size_t const size)
 
 struct heap_pool_desc* heap_pool_open(char name[])
 {
+#ifdef HP_HAVE_SHM
 	struct stat st;
 	int ret;
-
 	ret = __heap_pool_get_stat(name, &st);
 	/* dont exist */
 	if(ret < 0) {
 		return ERR_PTR(-errno);	
 	}
 	return __heap_pool_open(name, st.st_size);
+
+#else
+	(void)name;
+	return NULL;
+#endif
 }
 
 struct heap_pool_desc* heap_pool_create_if_needed(char name[],
@@ -163,9 +126,10 @@ struct heap_pool_desc* heap_pool_create(char name[],
 	size_t holesize = 0;
 	size_t pagesize;
 	struct heap_pool_desc *ret = NULL;
-	int fd;
+	int fd = 0;
 	size_t  *walker, i;
 	uint8_t *ptr;
+	unsigned int mapflag;
 
 	if(align & 0x1) {
 		return ERR_PTR(-EINVAL);
@@ -181,18 +145,27 @@ struct heap_pool_desc* heap_pool_create(char name[],
 	HEAP_POOL_DEBUG("allocsize is %zu\n", allocsize);
 	HEAP_POOL_DEBUG("holesize is %zu\n", holesize);
 
+#ifdef HP_HAVE_SHM
 	fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0666);
 	if(unlikely(fd < 0)) {
 		return ERR_PTR(-errno);
 	}
 	ftruncate(fd, allocsize);
 
+	mapflag = MAP_SHARED
+#else
+	(void)name;
+	mapflag = MAP_ANONYMOUS | MAP_PRIVATE;
+#endif
+
 	ret = mmap(NULL, allocsize, PROT_READ | PROT_WRITE, 
-		MAP_SHARED, fd, 0);
+		mapflag, fd, 0);
 	if(ret == MAP_FAILED) {
 		goto mapfailed;
 	}
+#ifdef HP_HAVE_SHM
 	close(fd);
+#endif
 	ret->hpd_next  = NULL;
 	ret->hpd_esize = size;
 	ret->hpd_enum  = 
@@ -204,6 +177,7 @@ struct heap_pool_desc* heap_pool_create(char name[],
 	ret->hpd_holesize  = holesize;
 	ret->hpd_allocsize = allocsize;
 	ret->hpd_firstfree = 0;
+	ret->hpd_truesize  = ((ret)->hpd_holesize + (ret)->hpd_esize + sizeof(chunk_extra_t));
 	walker = (size_t*)ret->hpd_raw;
 
 	ptr = (uint8_t*)(walker + ret->hpd_enum);
@@ -220,11 +194,17 @@ struct heap_pool_desc* heap_pool_create(char name[],
 	return ret;
 
 mapfailed:
+
+#ifdef HP_HAVE_SHM
 	close(fd);
+#endif
 	return ret;
 }
 
 void heap_pool_delete_shmfile(char name[])
 {
+#ifdef HP_HAVE_SHM
 	shm_unlink(name);
+#endif
+	(void)name;
 }
