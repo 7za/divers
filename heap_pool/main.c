@@ -1,8 +1,10 @@
 #include "heap_pool.h"
+#include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
 
+#if 0
 int f1()
 {
 	heap_pool_addr_t addr;
@@ -70,6 +72,8 @@ int f2()
 	return 0;
 }
 
+#endif
+
 #include <sys/time.h>
 #define GETTIME(low,high) asm ("rdtsc" : "=a" (low), "=d" (high))
 
@@ -85,18 +89,39 @@ int main(int argc, char *argv[])
 #endif
 	unsigned long high1, low1, high2, low2;
 
-	struct heap_pool_desc * p = heap_pool_create(NULL, 10000, 10000, 0);
+	struct heap_pool_desc * p = heap_pool_create(NULL, 100000, 128, 1);
 	
+	if(IS_ERR_OR_NULL(p)) {return -1;}
 	
-	heap_pool_addr_t tab[10000];
+	void *tab[100];
 	int i = 0;
 
-struct timeval t1, t2, t3;
-gettimeofday(&t1, 0);
+	void *a,*b,*c, *d, *e;
+
+	a = heap_pool_alloc(p);
+	printf("a=%p\n", a);
+	b = heap_pool_alloc(p);
+	printf("b=%p\n", b);
+	c = heap_pool_alloc(p);
+	printf("c=%p\n", c);
+	d = heap_pool_alloc(p);
+	printf("d=%p\n", d);
+	e = heap_pool_alloc(p);
+	printf("e=%p\n", e);
+
+	heap_pool_free(p, d);
+	heap_pool_free(p, b);
+
+
+	struct timeval t1, t2, t3;
+	gettimeofday(&t1, 0);
 	GETTIME(low1, high1);
-	while( i < 10000 && !IS_ERR_OR_NULL(heap_pool_alloc(p, tab+i++)));
+	while( i<10 && !IS_ERR_OR_NULL((tab[i] = heap_pool_alloc(p)))) {
+		++i;
+	}
 	GETTIME(low2, high2);
-gettimeofday(&t2, 0);
+	printf("%d\n", i);
+	gettimeofday(&t2, 0);
 	timersub(&t2, &t1, &t3);
 
 	//printf("%ld %ld\n", t3.tv_sec, t3.tv_usec);
@@ -109,12 +134,12 @@ gettimeofday(&t2, 0);
 	heap_pool_free(p, tab[6]);
 
 	{
-		void *pp[1000];
+		void *pp[10];
 		i = 0;
 		gettimeofday(&t1, 0);
 		GETTIME(low1, high1);
 
-		while( i < 10000 &&  (pp[i++]=malloc(10000)));
+		while( i < 10 &&  (pp[i++]=malloc(100)));
 		gettimeofday(&t2, 0);
 		timersub(&t2, &t1, &t3);
 		GETTIME(low2, high2);

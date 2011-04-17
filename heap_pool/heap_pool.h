@@ -6,6 +6,16 @@
 #include <sys/types.h>
 
 
+//#define DBG
+#ifdef DBG
+#include <stdio.h>
+# define HEAP_POOL_DEBUG(...)  printf(__VA_ARGS__);
+#else
+# define HEAP_POOL_DEBUG(...)  do{}while(0)
+#endif
+
+
+
 #ifndef unlikely 
 # define unlikely(x)	(__builtin_expect((x), 0))
 #endif
@@ -71,15 +81,23 @@ struct heap_pool_desc {
 	void* (*hpdbg_on_dblfree)(void*);
 	void* (*hpdbg_on_allocerr)(void*);
 #endif
-	size_t   hpd_esize;
-	size_t   hpd_enum;
-	size_t   hpd_holesize;
-	size_t   hpd_firstfree;
+	size_t hpd_szel;
+	size_t hpd_nrel;
+
+	size_t hpd_nralloc;
+
+	size_t hpd_firstfree;
+
+	size_t hpd_szck;
+	size_t hpd_holesize;
+
 	size_t   hpd_allocsize;
 	off_t	 hpd_offfirstelem;
-	off_t	 hpd_truesize;
 	uint8_t  hpd_raw[];
 };
+
+#define HEAP_POOL_ADDR_IN_BNDS(p,addr)	\
+		((addr)>(char*)p && (addr) < (char*)p + (p)->hpd_allocsize) 
 
 /*
  * this inline function give the address of the heap_pool_desc, according 
@@ -89,17 +107,6 @@ static inline void* heap_pool_raw_to_desc(char raw[])
 {
 	return raw - (size_t) ((struct heap_pool_desc*)NULL)->hpd_raw;
 }
-
-/*!
- * @brief : this structure is used for allocation and liberation
- * User can use addr as if as it was allocated by malloc, but he has
- * to provided this structure for liberation (not just addr)
- *
- */
-typedef struct {
-	void	*addr;
-	size_t	index;
-} heap_pool_addr_t;
 
 /*!
  * @brief : destroy (ie, munmap + unlink) an opened shm
@@ -148,44 +155,43 @@ typedef  uint8_t  chunk_extra_t;
 #endif
 
 
-
+/* TODO : this macro should be more efficient */
 #define HEAP_POOL_GET_NTH_CHUNK(p, nth)	\
-	((char*)p+(p)->hpd_offfirstelem + nth *	(p)->hpd_truesize)
+	((char*)p+(p)->hpd_offfirstelem + nth *	(p)->hpd_szck)
 
 static inline size_t heap_pool_nb_free(struct heap_pool_desc *p)
 {
-	return p->hpd_enum - p->hpd_firstfree;
+	return p->hpd_nrel - p->hpd_nralloc;
 }
 
+
 __attribute__((always_inline))
-static inline void* heap_pool_alloc(struct heap_pool_desc *p, heap_pool_addr_t *ret)
+static inline void* heap_pool_alloc(struct heap_pool_desc *p)
 {
-	size_t nieme;
-	if(p->hpd_firstfree == p->hpd_enum) {
+	size_t *array_index;
+	size_t old_ff;
+	if(!(heap_pool_nb_free(p))) {
 		return  (void*)(unsigned long)-ENOMEM;
 	}
-	nieme = ((size_t*)p->hpd_raw)[p->hpd_firstfree];
-	ret->index = p->hpd_firstfree;
-	ret->addr  = HEAP_POOL_GET_NTH_CHUNK(p, nieme);
-	++p->hpd_firstfree;
-	return ret->addr;
+	old_ff = p->hpd_firstfree;
+	array_index  = (size_t*)(p->hpd_raw);
+
+	p->hpd_firstfree = array_index[old_ff];
+	
+	++p->hpd_nralloc;
+
+	return HEAP_POOL_GET_NTH_CHUNK(p, old_ff);
 }
 
 
 __attribute__((always_inline))
-static inline void heap_pool_free(struct heap_pool_desc *p, heap_pool_addr_t addr)
+static inline void heap_pool_free(struct heap_pool_desc *p, void *addr)
 {
-	size_t *array = (size_t*)p->hpd_raw;
-	size_t last_allocatated;
-
-//	if(addr.index >= p->hpd_firstfree)
-//		abort();
-
-	--p->hpd_firstfree;
-
-	last_allocatated = array[p->hpd_firstfree];
-	array[p->hpd_firstfree] = array[addr.index]; 
-	array[addr.index] = last_allocatated;
+	size_t index_index = *(size_t*)(addr - sizeof(size_t));
+	size_t *array_index  = (size_t*)(p->hpd_raw);
+	array_index[index_index] = p->hpd_firstfree;
+	p->hpd_firstfree = index_index;
+	--p->hpd_nralloc;
 }
 
 

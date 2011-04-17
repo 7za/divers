@@ -20,13 +20,6 @@
 # define __HEAP_POOL_ALLOC_CHUNK_STEP	(10)
 #endif
 
-#ifdef DBG
-# define HEAP_POOL_DEBUG(...)  printf(__VA_ARGS__);
-#else
-# define HEAP_POOL_DEBUG(...)  do{}while(0)
-#endif
-
-
 #if  defined(_BSD_SOURCE) || _XOPEN_SOURCE >= 500
 # define heap_pool_getpagesize()	getpagesize()
 #else
@@ -116,12 +109,28 @@ struct heap_pool_desc* heap_pool_create_if_needed(char name[],
 	return __heap_pool_open(name, stat.st_size);
 }
 
+#define is_power_of_two(val)	((val) == 1 || !((val) & (val - 1))) 
+
+static size_t __compute_new_alignment(size_t const curr_align)
+{
+	size_t taille_index = sizeof(size_t);
+	size_t new_align = curr_align;
+	if(taille_index > curr_align) {
+		new_align += taille_index - curr_align;
+		new_align =  __ALIGN(new_align, curr_align);
+	}
+	HEAP_POOL_DEBUG("alignment queried is %zu, new alignment with size_t is %zu\n",
+			curr_align, new_align);
+	return new_align;
+}
+
 struct heap_pool_desc* heap_pool_create(char name[],
 					size_t const nb,
 					size_t const size,
-					size_t const align)
+					size_t const _align)
 {
 	size_t allocsize;
+	size_t align;
 	size_t chunksize;
 	size_t holesize = 0;
 	size_t pagesize;
@@ -131,17 +140,23 @@ struct heap_pool_desc* heap_pool_create(char name[],
 	uint8_t *ptr;
 	unsigned int mapflag;
 
-	if((align != 1) && (align & (align - 1))) { 
+	if(_align && !is_power_of_two(_align)) { 
 		return ERR_PTR(-EINVAL);
 	}
+	align = (!_align) ? sizeof(size_t) : __compute_new_alignment(_align);
 
 	pagesize  = (size_t)heap_pool_getpagesize();
-	chunksize = size + sizeof(chunk_extra_t);
-	if(align)
-		holesize  = __ALIGN(chunksize, align) - chunksize;
-	allocsize = sizeof(*ret) + align + nb*(sizeof(size_t) + chunksize);
+	chunksize = size + sizeof(chunk_extra_t); 
+	holesize  = __ALIGN(chunksize, align) - chunksize;
+	if(holesize < sizeof(size_t))
+		holesize = sizeof(size_t);
+	// we need descriptor + first align - holesize [first eleme]
+	// and for each elem: 2 size_t, and one holesize
+	allocsize = sizeof(*ret) + align - holesize +  
+		nb*(sizeof(size_t) + chunksize + holesize);
 	allocsize = __ALIGN(allocsize, pagesize);
 
+	HEAP_POOL_DEBUG("need %zu pages\n", allocsize / pagesize);
 	HEAP_POOL_DEBUG("allocsize is %zu\n", allocsize);
 	HEAP_POOL_DEBUG("holesize is %zu\n", holesize);
 
@@ -166,32 +181,36 @@ struct heap_pool_desc* heap_pool_create(char name[],
 #ifdef HP_HAVE_SHM
 	close(fd);
 #endif
-	ret->hpd_next  = NULL;
-	ret->hpd_esize = size;
-	ret->hpd_enum  = 
-		((allocsize - align - offsetof(struct heap_pool_desc, hpd_raw)) /
-		 (sizeof(size_t) + holesize + chunksize ));
+	ret->hpd_next = NULL;
+	ret->hpd_szel = size;
+	ret->hpd_nrel = 
+		((allocsize - align - sizeof(*ret)) /
+		 (sizeof(size_t) + holesize + chunksize));
+	ret->hpd_nralloc = 0;
 
-	HEAP_POOL_DEBUG("numelem is %zu\n", ret->hpd_enum);
+	HEAP_POOL_DEBUG("numelem is %zu\n", ret->hpd_nrel);
+
+	ret->hpd_firstfree = 0;
+
+	ret->hpd_szck = holesize + ret->hpd_szel + sizeof(chunk_extra_t);
 
 	ret->hpd_holesize  = holesize;
 	ret->hpd_allocsize = allocsize;
-	ret->hpd_firstfree = 0;
-	ret->hpd_truesize  = ((ret)->hpd_holesize + (ret)->hpd_esize + sizeof(chunk_extra_t));
+
 	walker = (size_t*)ret->hpd_raw;
+	ptr = (uint8_t*)(walker + ret->hpd_nrel);
+	ptr = __ALIGN_PTR(ptr, align);
 
-	ptr = (uint8_t*)(walker + ret->hpd_enum);
-	if(align)
-		ptr    = __ALIGN_PTR(walker + ret->hpd_enum, align);
 
-	HEAP_POOL_DEBUG("ptr go %p to %p\n", walker + ret->hpd_enum, ptr);
+	HEAP_POOL_DEBUG("ptr go %p to %p\n", walker + ret->hpd_nrel, ptr);
 	ret->hpd_offfirstelem = (off_t)((char*)ptr - (char*)ret);
-	for(i = 0; i < ret->hpd_enum; ++i, ++walker, ptr+=chunksize+holesize) {
-		*walker = i;
-		*(ptr + size) = HEAP_POOL_MAGIC | HEAP_CHUNK_FREE;
-	}
+#define INDEX_INDEX_INDEXNEXT (1)
 
-	return ret;
+	for(i = 0; i < ret->hpd_nrel; ++i, walker++, ptr+=chunksize+holesize) {
+		*walker     = (i+1);
+		*(ptr + size) = HEAP_POOL_MAGIC | HEAP_CHUNK_FREE;
+		*(size_t*)(ptr - sizeof(size_t)) = i;
+	}
 
 mapfailed:
 
