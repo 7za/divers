@@ -6,7 +6,7 @@
 #include <sys/types.h>
 
 
-//#define DBG
+#define DBG
 #ifdef DBG
 #include <stdio.h>
 # define HEAP_POOL_DEBUG(...)  printf(__VA_ARGS__);
@@ -103,6 +103,7 @@ struct heap_pool_desc {
  * this inline function give the address of the heap_pool_desc, according 
  * the value of hpd_raw
  */
+__attribute__((always_inline))
 static inline void* heap_pool_raw_to_desc(char raw[])
 {
 	return raw - (size_t) ((struct heap_pool_desc*)NULL)->hpd_raw;
@@ -148,10 +149,10 @@ struct heap_pool_desc* heap_pool_create_if_needed(char name[],
 						size_t const align);
 #ifdef   HEAP_POOL_OVERFLOW_DBG
 typedef  uint32_t chunk_extra_t;	
+#define  CHUNK_EXTRA_SIZE	sizeof(chunk_extra_t)
 # define HEAP_POOL_MAGIC 0xcacacaca
 #else
-typedef  uint8_t  chunk_extra_t;
-# define HEAP_POOL_MAGIC 0xca 
+#define  CHUNK_EXTRA_SIZE	0
 #endif
 
 
@@ -159,14 +160,12 @@ typedef  uint8_t  chunk_extra_t;
 #define HEAP_POOL_GET_NTH_CHUNK(p, nth)	\
 	((char*)p+(p)->hpd_offfirstelem + nth *	(p)->hpd_szck)
 
-static inline size_t heap_pool_nb_free(struct heap_pool_desc *p)
-{
-	return p->hpd_nrel - p->hpd_nralloc;
-}
+
+#define heap_pool_nb_free(p)	((p)->hpd_nrel - (p)->hpd_nralloc)
 
 
 __attribute__((always_inline))
-static inline void* heap_pool_alloc(struct heap_pool_desc *p)
+static inline void* heap_pool_alloc(struct heap_pool_desc *const p)
 {
 	size_t *array_index;
 	size_t old_ff;
@@ -185,7 +184,8 @@ static inline void* heap_pool_alloc(struct heap_pool_desc *p)
 
 
 __attribute__((always_inline))
-static inline void heap_pool_free(struct heap_pool_desc *p, void *addr)
+static inline void heap_pool_free(struct heap_pool_desc *const p,
+								const void *addr)
 {
 	size_t index_index = *(size_t*)(addr - sizeof(size_t));
 	size_t *array_index  = (size_t*)(p->hpd_raw);

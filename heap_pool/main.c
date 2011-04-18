@@ -88,14 +88,30 @@ int main(int argc, char *argv[])
 	return 0;
 #endif
 	unsigned long high1, low1, high2, low2;
+	struct timeval t1,t2;
 
-	struct heap_pool_desc * p = heap_pool_create(NULL, 100000, 128, 1);
+#if 0
+	int j;
+
+	for(j = 0; j < 2000; j++) {
+		int k;
+		for(k = 1; k < 1200; ++k) {
+			struct heap_pool_desc *desc = heap_pool_create(NULL, 10, k, j);
+			if(!IS_ERR_OR_NULL(desc)) {
+				heap_pool_destroy(desc, NULL);
+			}
+		}
+	}
+
+#endif
+
+	struct heap_pool_desc * p = heap_pool_create(NULL, 10, 128, 0);
 	
 	if(IS_ERR_OR_NULL(p)) {return -1;}
 	
 	void *tab[100];
 	int i = 0;
-
+#if 0
 	void *a,*b,*c, *d, *e;
 
 	a = heap_pool_alloc(p);
@@ -111,27 +127,21 @@ int main(int argc, char *argv[])
 
 	heap_pool_free(p, d);
 	heap_pool_free(p, b);
+#endif
 
-
-	struct timeval t1, t2, t3;
 	gettimeofday(&t1, 0);
 	GETTIME(low1, high1);
-	while( i<10 && !IS_ERR_OR_NULL((tab[i] = heap_pool_alloc(p)))) {
+	while( i < 10 &&   !IS_ERR_OR_NULL(((tab[i] = heap_pool_alloc(p))))) {
 		++i;
 	}
 	GETTIME(low2, high2);
-	printf("%d\n", i);
 	gettimeofday(&t2, 0);
-	timersub(&t2, &t1, &t3);
+	//printf("alloc1 %lu %lu\n",high2 - high1, low2 - low1);
+	timersub(&t2, &t1, &t2);
+	printf("%lu %lu\n", t2.tv_sec, t2.tv_usec);
 
-	//printf("%ld %ld\n", t3.tv_sec, t3.tv_usec);
-	printf("%lu %lu\n",high2 - high1, low2 - low1);
 
-	printf("%d\n", i);
 
-	heap_pool_free(p, tab[5]);
-	heap_pool_free(p, tab[7]);
-	heap_pool_free(p, tab[6]);
 
 	{
 		void *pp[10];
@@ -139,16 +149,37 @@ int main(int argc, char *argv[])
 		gettimeofday(&t1, 0);
 		GETTIME(low1, high1);
 
-		while( i < 10 &&  (pp[i++]=malloc(100)));
-		gettimeofday(&t2, 0);
-		timersub(&t2, &t1, &t3);
+		while( i < 10 &&  (pp[i++]=malloc(128)));
 		GETTIME(low2, high2);
+		gettimeofday(&t2, 0);
 
-		printf("%lu %lu\n",high2 - high1, low2 - low1);
-		//printf("%ld %ld\n", t3.tv_sec, t3.tv_usec);
+		//printf("alloc2 %lu %lu\n",high2 - high1, low2 - low1);
+		timersub(&t2, &t1, &t2);
+		printf("%lu %lu\n", t2.tv_sec, t2.tv_usec);
+
+		gettimeofday(&t1, 0);
+		GETTIME(low1, high1);
+		while(i--)
+			free(pp[i]);
+		GETTIME(low2, high2);
+		gettimeofday(&t2, 0);
+		timersub(&t2, &t1, &t2);
+		printf("%lu %lu\n", t2.tv_sec, t2.tv_usec);
+
+		//printf("free2 %lu %lu\n",high2 - high1, low2 - low1);
 
 	}
-
+	i=0;
+	gettimeofday(&t1, 0);
+	GETTIME(low1, high1);
+	while(i < 10) {
+		heap_pool_free(p, tab[i ++]);
+	}
+	GETTIME(low2, high2);
+	gettimeofday(&t2, 0);
+	timersub(&t2, &t1, &t2);
+	printf("%lu %lu\n", t2.tv_sec, t2.tv_usec);
+	//printf("free1 %lu %lu\n",high2 - high1, low2 - low1);
 	heap_pool_destroy(p, NULL);
 }
 

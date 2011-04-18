@@ -11,6 +11,9 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include "heap_pool.h"
+#ifdef DBG
+#include <assert.h>
+#endif
 
 #ifndef __HEAP_POOL_ALLOC_STEP
 # define __HEAP_POOL_ALLOC_STEP	(5)
@@ -140,18 +143,21 @@ struct heap_pool_desc* heap_pool_create(char name[],
 	uint8_t *ptr;
 	unsigned int mapflag;
 
+	HEAP_POOL_DEBUG("Starting with %d %d %d\n", nb, size, _align);
 	if(_align && !is_power_of_two(_align)) { 
 		return ERR_PTR(-EINVAL);
 	}
 	align = (!_align) ? sizeof(size_t) : __compute_new_alignment(_align);
 
 	pagesize  = (size_t)heap_pool_getpagesize();
-	chunksize = size + sizeof(chunk_extra_t); 
-	holesize  = __ALIGN(chunksize, align) - chunksize;
-	if(holesize < sizeof(size_t))
-		holesize = sizeof(size_t);
-	// we need descriptor + first align - holesize [first eleme]
-	// and for each elem: 2 size_t, and one holesize
+	chunksize = size + CHUNK_EXTRA_SIZE; 
+	holesize = sizeof(size_t);
+	if(_align > 1) {
+		size_t next_val = chunksize + holesize;
+		size_t diff     = __ALIGN(next_val, _align) - next_val;
+		holesize += diff;
+	}
+
 	allocsize = sizeof(*ret) + align - holesize +  
 		nb*(sizeof(size_t) + chunksize + holesize);
 	allocsize = __ALIGN(allocsize, pagesize);
@@ -192,14 +198,17 @@ struct heap_pool_desc* heap_pool_create(char name[],
 
 	ret->hpd_firstfree = 0;
 
-	ret->hpd_szck = holesize + ret->hpd_szel + sizeof(chunk_extra_t);
+	ret->hpd_szck = holesize + ret->hpd_szel + CHUNK_EXTRA_SIZE; 
 
 	ret->hpd_holesize  = holesize;
 	ret->hpd_allocsize = allocsize;
 
 	walker = (size_t*)ret->hpd_raw;
 	ptr = (uint8_t*)(walker + ret->hpd_nrel);
-	ptr = __ALIGN_PTR(ptr, align);
+	HEAP_POOL_DEBUG("ptr before allocating hole %p\n", ptr);
+	uint8_t *ptr2 = __ALIGN_PTR(ptr + align, align);
+	HEAP_POOL_DEBUG("ptr after allocating hole %p\n", ptr2 - ptr);
+	ptr = ptr2;
 
 
 	HEAP_POOL_DEBUG("ptr go %p to %p\n", walker + ret->hpd_nrel, ptr);
@@ -208,10 +217,19 @@ struct heap_pool_desc* heap_pool_create(char name[],
 
 	for(i = 0; i < ret->hpd_nrel; ++i, walker++, ptr+=chunksize+holesize) {
 		*walker     = (i+1);
+#ifdef HEAP_POOL_OVERFLOW_DBG
 		*(ptr + size) = HEAP_POOL_MAGIC | HEAP_CHUNK_FREE;
+#endif
 		*(size_t*)(ptr - sizeof(size_t)) = i;
+		
+#ifdef DBG
+		if(_align)
+			assert((unsigned long)ptr % _align == 0);
+#endif
+
 	}
 
+	HEAP_POOL_DEBUG("-------------------------\n");
 mapfailed:
 
 #ifdef HP_HAVE_SHM
